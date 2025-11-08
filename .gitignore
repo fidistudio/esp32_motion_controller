@@ -1,0 +1,31 @@
+# Build artifacts
+/build/
+*.bin
+*.elf
+*.map
+
+# Configuration backups
+sdkconfig.old
+sdkconfig.defaults
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python virtual environments
+.venv/
+env/
+venv/
+
+# Espressif tools cache
+.espressif/
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# macOS / Linux cruft
+.DS_Store
+Thumbs.db
