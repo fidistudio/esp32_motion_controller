@@ -13,6 +13,7 @@
 #define TAG "HALL_ENCODER"
 
 #define ENCODER_GPIO GPIO_NUM_23
+#define SECTOR_GPIO GPIO_NUM_22
 #define PULSES_PER_REV 15
 #define GLITCH_FILTER_NS 10000 // 10 µs
 #define POLL_INTERVAL_MS 1000
@@ -25,6 +26,8 @@
 
 static pcnt_unit_handle_t encoder_unit = NULL;
 static pcnt_channel_handle_t encoder_channel = NULL;
+static pcnt_unit_handle_t sector_unit = NULL;
+static pcnt_channel_handle_t sector_channel = NULL;
 
 static volatile int64_t last_pulse_time_us = 0;
 static volatile int64_t pulse_interval_us = 0;
@@ -32,12 +35,12 @@ static volatile int sector = 0;
 static volatile bool direction_inverted = true;
 
 // ==========================================================
-// ISR: PCNT Watch Point Event
+// ISR: PCNT #1 (velocidad angular)
 // ==========================================================
 
-static bool IRAM_ATTR on_pcnt_watch_point(pcnt_unit_handle_t unit,
-                                          const pcnt_watch_event_data_t *edata,
-                                          void *user_ctx) {
+static bool IRAM_ATTR on_encoder_pulse(pcnt_unit_handle_t unit,
+                                       const pcnt_watch_event_data_t *edata,
+                                       void *user_ctx) {
   int64_t now = esp_timer_get_time();
 
   if (last_pulse_time_us != 0) {
@@ -48,82 +51,111 @@ static bool IRAM_ATTR on_pcnt_watch_point(pcnt_unit_handle_t unit,
   // Reset count for next pulse
   pcnt_unit_clear_count(unit);
 
-  // Update sector according to direction
-    sector = (sector + 1) % PULSES_PER_REV;
+  // Avanza sector
+  sector = (sector + 1) % PULSES_PER_REV;
 
   return false;
 }
 
 // ==========================================================
-// Initialization
+// ISR: PCNT #2 (reseteo de sector)
 // ==========================================================
 
-static void configure_pcnt_unit(void) {
+static bool IRAM_ATTR on_sector_reset(pcnt_unit_handle_t unit,
+                                      const pcnt_watch_event_data_t *edata,
+                                      void *user_ctx) {
+  sector = 0;                  // Reinicia el sector
+  pcnt_unit_clear_count(unit); // Limpia el contador de este PCNT
+  return false;
+}
+
+// ==========================================================
+// Common PCNT setup helpers
+// ==========================================================
+
+static void configure_pcnt_unit(pcnt_unit_handle_t *unit) {
   pcnt_unit_config_t config = {
       .high_limit = PCNT_HIGH_LIMIT,
       .low_limit = PCNT_LOW_LIMIT,
   };
-  ESP_ERROR_CHECK(pcnt_new_unit(&config, &encoder_unit));
+  ESP_ERROR_CHECK(pcnt_new_unit(&config, unit));
 }
 
-static void configure_pcnt_channel(void) {
+static void configure_pcnt_channel(pcnt_unit_handle_t unit,
+                                   pcnt_channel_handle_t *channel,
+                                   gpio_num_t gpio) {
   pcnt_chan_config_t config = {
-      .edge_gpio_num = ENCODER_GPIO,
+      .edge_gpio_num = gpio,
       .level_gpio_num = -1,
   };
-  ESP_ERROR_CHECK(pcnt_new_channel(encoder_unit, &config, &encoder_channel));
-
-  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(
-      encoder_channel, PCNT_CHANNEL_EDGE_ACTION_HOLD,
-      PCNT_CHANNEL_EDGE_ACTION_INCREASE));
-
-  ESP_LOGI(TAG, "PCNT channel configured to count upward on each pulse edge");
+  ESP_ERROR_CHECK(pcnt_new_channel(unit, &config, channel));
+  ESP_ERROR_CHECK(
+      pcnt_channel_set_edge_action(*channel, PCNT_CHANNEL_EDGE_ACTION_HOLD,
+                                   PCNT_CHANNEL_EDGE_ACTION_INCREASE));
 }
 
-static void configure_glitch_filter(void) {
+static void configure_glitch_filter(pcnt_unit_handle_t unit) {
   pcnt_glitch_filter_config_t filter = {
       .max_glitch_ns = GLITCH_FILTER_NS,
   };
-  ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(encoder_unit, &filter));
+  ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(unit, &filter));
 }
 
-static void configure_pcnt_event_callback(void) {
+static void start_pcnt_unit(pcnt_unit_handle_t unit) {
+  ESP_ERROR_CHECK(pcnt_unit_enable(unit));
+  ESP_ERROR_CHECK(pcnt_unit_clear_count(unit));
+  ESP_ERROR_CHECK(pcnt_unit_start(unit));
+}
+
+// ==========================================================
+// PCNT #1 setup (encoder principal)
+// ==========================================================
+
+static void setup_encoder_pcnt(void) {
+  configure_pcnt_unit(&encoder_unit);
+  configure_pcnt_channel(encoder_unit, &encoder_channel, ENCODER_GPIO);
+  configure_glitch_filter(encoder_unit);
+
   pcnt_event_callbacks_t callbacks = {
-      .on_reach = on_pcnt_watch_point,
+      .on_reach = on_encoder_pulse,
   };
   ESP_ERROR_CHECK(
       pcnt_unit_register_event_callbacks(encoder_unit, &callbacks, NULL));
 
   ESP_ERROR_CHECK(pcnt_unit_add_watch_point(encoder_unit, 1));
-}
 
-static void start_pcnt_unit(void) {
-  ESP_ERROR_CHECK(pcnt_unit_enable(encoder_unit));
-  ESP_ERROR_CHECK(pcnt_unit_clear_count(encoder_unit));
-  ESP_ERROR_CHECK(pcnt_unit_start(encoder_unit));
+  start_pcnt_unit(encoder_unit);
 }
 
 // ==========================================================
-// Behavior
+// PCNT #2 setup (reseteo de sector)
 // ==========================================================
 
-void encoder_set_direction(bool inverted) {
-  direction_inverted = inverted;
-  ESP_LOGI(TAG, "Encoder direction: %s", inverted ? "INVERTED" : "NORMAL");
+static void setup_sector_pcnt(void) {
+  configure_pcnt_unit(&sector_unit);
+  configure_pcnt_channel(sector_unit, &sector_channel, SECTOR_GPIO);
+  configure_glitch_filter(sector_unit);
+
+  pcnt_event_callbacks_t callbacks = {
+      .on_reach = on_sector_reset,
+  };
+  ESP_ERROR_CHECK(
+      pcnt_unit_register_event_callbacks(sector_unit, &callbacks, NULL));
+
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(sector_unit, 1));
+
+  start_pcnt_unit(sector_unit);
 }
 
 // ==========================================================
-// Task: Read and Report
+// Task principal
 // ==========================================================
 
 static void pulse_counter_task(void *parameter) {
-  ESP_LOGI(TAG, "Initializing Hall encoder task...");
+  ESP_LOGI(TAG, "Inicializando encoders...");
 
-  configure_pcnt_unit();
-  configure_pcnt_channel();
-  configure_glitch_filter();
-  configure_pcnt_event_callback();
-  start_pcnt_unit();
+  setup_encoder_pcnt();
+  setup_sector_pcnt();
 
   while (true) {
     float angular_speed_rad_s = 0.0f;
