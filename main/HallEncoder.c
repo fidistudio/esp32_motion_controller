@@ -4,129 +4,185 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "math.h"
+
+// ==========================================================
+// Configuration
+// ==========================================================
 
 #define TAG "HALL_ENCODER"
 
-// === Hardware Configuration ===
 #define ENCODER_GPIO GPIO_NUM_23
-#define PCNT_HIGH_LIMIT 15
+#define SECTOR_GPIO GPIO_NUM_22
+#define PULSES_PER_REV 15
+#define GLITCH_FILTER_NS 10000 // 10 µs
+#define POLL_INTERVAL_MS 1000
+#define PCNT_HIGH_LIMIT 2
 #define PCNT_LOW_LIMIT -1
 
-// === Behavior Configuration ===
-static volatile bool count_inverted = false; // Dynamic direction flag
-#define GLITCH_FILTER_NS 10000               // 10 µs
-#define POLL_INTERVAL_MS 1000                // Log update rate
+// ==========================================================
+// Global State
+// ==========================================================
 
-// === Global Variables ===
-static pcnt_unit_handle_t encoder_pcnt_unit = NULL;
-static pcnt_channel_handle_t encoder_pcnt_channel = NULL;
+static pcnt_unit_handle_t encoder_unit = NULL;
+static pcnt_channel_handle_t encoder_channel = NULL;
+static pcnt_unit_handle_t sector_unit = NULL;
+static pcnt_channel_handle_t sector_channel = NULL;
 
 static volatile int64_t last_pulse_time_us = 0;
 static volatile int64_t pulse_interval_us = 0;
-static bool isr_service_installed = false;
+static volatile int sector = 0;
+static volatile bool direction_inverted = true;
 
-// === Interrupt Handler ===
-static void IRAM_ATTR on_pulse_detected_isr(void *arg) {
+// ==========================================================
+// ISR: PCNT #1 (velocidad angular)
+// ==========================================================
+
+static bool IRAM_ATTR on_encoder_pulse(pcnt_unit_handle_t unit,
+                                       const pcnt_watch_event_data_t *edata,
+                                       void *user_ctx) {
   int64_t now = esp_timer_get_time();
+
   if (last_pulse_time_us != 0) {
     pulse_interval_us = now - last_pulse_time_us;
   }
   last_pulse_time_us = now;
+
+  // Reset count for next pulse
+  pcnt_unit_clear_count(unit);
+
+  // Avanza sector
+  sector = (sector + 1) % PULSES_PER_REV;
+
+  return false;
 }
 
-// === Initialization Helpers ===
-static void init_pcnt_unit(void) {
-  pcnt_unit_config_t unit_config = {
+// ==========================================================
+// ISR: PCNT #2 (reseteo de sector)
+// ==========================================================
+
+static bool IRAM_ATTR on_sector_reset(pcnt_unit_handle_t unit,
+                                      const pcnt_watch_event_data_t *edata,
+                                      void *user_ctx) {
+  sector = 0;                  // Reinicia el sector
+  pcnt_unit_clear_count(unit); // Limpia el contador de este PCNT
+  return false;
+}
+
+// ==========================================================
+// Common PCNT setup helpers
+// ==========================================================
+
+static void configure_pcnt_unit(pcnt_unit_handle_t *unit) {
+  pcnt_unit_config_t config = {
       .high_limit = PCNT_HIGH_LIMIT,
       .low_limit = PCNT_LOW_LIMIT,
   };
-  ESP_ERROR_CHECK(pcnt_new_unit(&unit_config, &encoder_pcnt_unit));
+  ESP_ERROR_CHECK(pcnt_new_unit(&config, unit));
 }
 
-static void init_pcnt_channel(void) {
-  pcnt_chan_config_t channel_config = {
-      .edge_gpio_num = ENCODER_GPIO,
+static void configure_pcnt_channel(pcnt_unit_handle_t unit,
+                                   pcnt_channel_handle_t *channel,
+                                   gpio_num_t gpio) {
+  pcnt_chan_config_t config = {
+      .edge_gpio_num = gpio,
       .level_gpio_num = -1,
   };
-  ESP_ERROR_CHECK(pcnt_new_channel(encoder_pcnt_unit, &channel_config,
-                                   &encoder_pcnt_channel));
-
-  // Always count upward — logical inversion handled in software
-  ESP_ERROR_CHECK(pcnt_channel_set_edge_action(
-      encoder_pcnt_channel, PCNT_CHANNEL_EDGE_ACTION_HOLD,
-      PCNT_CHANNEL_EDGE_ACTION_INCREASE));
-
-  ESP_LOGI(TAG, "PCNT configured (always counting upward)");
+  ESP_ERROR_CHECK(pcnt_new_channel(unit, &config, channel));
+  ESP_ERROR_CHECK(
+      pcnt_channel_set_edge_action(*channel, PCNT_CHANNEL_EDGE_ACTION_HOLD,
+                                   PCNT_CHANNEL_EDGE_ACTION_INCREASE));
 }
 
-static void init_glitch_filter(void) {
-  pcnt_glitch_filter_config_t filter_config = {
+static void configure_glitch_filter(pcnt_unit_handle_t unit) {
+  pcnt_glitch_filter_config_t filter = {
       .max_glitch_ns = GLITCH_FILTER_NS,
   };
-  ESP_ERROR_CHECK(
-      pcnt_unit_set_glitch_filter(encoder_pcnt_unit, &filter_config));
+  ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(unit, &filter));
 }
 
-static void init_gpio_interrupt(void) {
-  gpio_config_t io_config = {
-      .pin_bit_mask = 1ULL << ENCODER_GPIO,
-      .mode = GPIO_MODE_INPUT,
-      .pull_up_en = 1,
-      .intr_type = GPIO_INTR_NEGEDGE,
+static void start_pcnt_unit(pcnt_unit_handle_t unit) {
+  ESP_ERROR_CHECK(pcnt_unit_enable(unit));
+  ESP_ERROR_CHECK(pcnt_unit_clear_count(unit));
+  ESP_ERROR_CHECK(pcnt_unit_start(unit));
+}
+
+// ==========================================================
+// PCNT #1 setup (encoder principal)
+// ==========================================================
+
+static void setup_encoder_pcnt(void) {
+  configure_pcnt_unit(&encoder_unit);
+  configure_pcnt_channel(encoder_unit, &encoder_channel, ENCODER_GPIO);
+  configure_glitch_filter(encoder_unit);
+
+  pcnt_event_callbacks_t callbacks = {
+      .on_reach = on_encoder_pulse,
   };
-  gpio_config(&io_config);
+  ESP_ERROR_CHECK(
+      pcnt_unit_register_event_callbacks(encoder_unit, &callbacks, NULL));
 
-  if (!isr_service_installed) {
-    gpio_install_isr_service(0);
-    isr_service_installed = true;
-  }
-  gpio_isr_handler_add(ENCODER_GPIO, on_pulse_detected_isr, NULL);
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(encoder_unit, 1));
+
+  start_pcnt_unit(encoder_unit);
 }
 
-// === Public API ===
-void encoder_set_direction(bool inverted) {
-  count_inverted = inverted;
-  ESP_LOGI(TAG, "Encoder direction set to: %s",
-           inverted ? "INVERTED" : "NORMAL");
+// ==========================================================
+// PCNT #2 setup (reseteo de sector)
+// ==========================================================
+
+static void setup_sector_pcnt(void) {
+  configure_pcnt_unit(&sector_unit);
+  configure_pcnt_channel(sector_unit, &sector_channel, SECTOR_GPIO);
+  configure_glitch_filter(sector_unit);
+
+  pcnt_event_callbacks_t callbacks = {
+      .on_reach = on_sector_reset,
+  };
+  ESP_ERROR_CHECK(
+      pcnt_unit_register_event_callbacks(sector_unit, &callbacks, NULL));
+
+  ESP_ERROR_CHECK(pcnt_unit_add_watch_point(sector_unit, 1));
+
+  start_pcnt_unit(sector_unit);
 }
 
-// === Main Task ===
-static void PulseCounterTask(void *parameter) {
-  ESP_LOGI(TAG, "Initializing pulse counter and timing task...");
+// ==========================================================
+// Task principal
+// ==========================================================
 
-  init_pcnt_unit();
-  init_pcnt_channel();
-  init_glitch_filter();
+static void pulse_counter_task(void *parameter) {
+  ESP_LOGI(TAG, "Inicializando encoders...");
 
-  ESP_ERROR_CHECK(pcnt_unit_enable(encoder_pcnt_unit));
-  ESP_ERROR_CHECK(pcnt_unit_clear_count(encoder_pcnt_unit));
-  ESP_ERROR_CHECK(pcnt_unit_start(encoder_pcnt_unit));
-
-  init_gpio_interrupt();
+  setup_encoder_pcnt();
+  setup_sector_pcnt();
 
   while (true) {
-    int count = 0;
-    pcnt_unit_get_count(encoder_pcnt_unit, &count);
+    float angular_speed_rad_s = 0.0f;
+    float angular_speed_rpm = 0.0f;
 
-    encoder_set_direction(true);
-    if (count_inverted) {
-      count = -count;
-    }
-
-    float frequency_hz = 0.0f;
     if (pulse_interval_us > 0) {
-      frequency_hz = 1e6f / (float)pulse_interval_us;
+      const float us_to_s = 1e-6f;
+      float pulse_period_s = pulse_interval_us * us_to_s;
+      angular_speed_rad_s =
+          (2.0f * (float)M_PI) / (PULSES_PER_REV * pulse_period_s);
+      angular_speed_rpm = (60.0f / (PULSES_PER_REV * pulse_period_s));
     }
 
-    ESP_LOGI(TAG, "Count: %d | Interval: %lld µs | Frequency: %.2f Hz", count,
-             pulse_interval_us, frequency_hz);
+    ESP_LOGI(TAG,
+             "Sector: %02d | Interval: %lld µs | ω = %.2f rad/s | %.2f RPM | "
+             "Dir: %s",
+             sector, pulse_interval_us, angular_speed_rad_s, angular_speed_rpm,
+             direction_inverted ? "INV" : "NORM");
 
     vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
   }
 }
 
-// === Entry Point ===
-void app_main(void) {
-  xTaskCreate(PulseCounterTask, "PulseCounterTask", 4096, NULL, 5, NULL);
+// ==========================================================
+// Entry Point
+// ==========================================================
 
+void app_main(void) {
+  xTaskCreate(pulse_counter_task, "pulse_counter_task", 4096, NULL, 5, NULL);
 }
