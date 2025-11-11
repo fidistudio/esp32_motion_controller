@@ -5,6 +5,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/portmacro.h"
 #include "math.h"
 #include <stdlib.h>
 #include <string.h>
@@ -28,14 +29,16 @@
 #define UART_PORT_NUM UART_NUM_0
 #define UART_RX_BUF_SIZE 128
 
+static portMUX_TYPE encoder_mux = portMUX_INITIALIZER_UNLOCKED;
+
 // ==========================================================
 // TYPE DEFINITIONS
 // ==========================================================
 
 typedef struct {
-  int64_t last_pulse_time_us;
-  int64_t pulse_interval_us;
-  int current_sector;
+  volatile int64_t last_pulse_time_us;
+  volatile int64_t pulse_interval_us;
+  volatile int current_sector;
   bool direction_inverted;
   bool use_lut_correction;
 
@@ -64,12 +67,14 @@ static bool IRAM_ATTR on_encoder_pulse(pcnt_unit_handle_t unit,
   encoder_state_t *state = (encoder_state_t *)user_ctx;
   int64_t now = esp_timer_get_time();
 
+  portENTER_CRITICAL_ISR(&encoder_mux);
   if (state->last_pulse_time_us != 0) {
     state->pulse_interval_us = now - state->last_pulse_time_us;
   }
 
   state->last_pulse_time_us = now;
   state->current_sector = (state->current_sector + 1) % PULSES_PER_REV;
+  portEXIT_CRITICAL_ISR(&encoder_mux);
 
   pcnt_unit_clear_count(unit);
   return false;
@@ -79,6 +84,8 @@ static bool IRAM_ATTR on_sector_reset(pcnt_unit_handle_t unit,
                                       const pcnt_watch_event_data_t *edata,
                                       void *user_ctx) {
   encoder_state_t *state = (encoder_state_t *)user_ctx;
+
+  portENTER_CRITICAL_ISR(&encoder_mux);
   state->current_sector = 0;
 
   if (state->calibration_requested && !state->calibrating) {
@@ -89,6 +96,7 @@ static bool IRAM_ATTR on_sector_reset(pcnt_unit_handle_t unit,
   } else if (state->calibrating) {
     state->revolutions++;
   }
+  portEXIT_CRITICAL_ISR(&encoder_mux);
 
   pcnt_unit_clear_count(unit);
   return false;
@@ -159,16 +167,25 @@ static void setup_sector_pcnt(encoder_state_t *state) {
 // ==========================================================
 
 static float compute_rad_s(const encoder_state_t *state) {
-  if (state->pulse_interval_us <= 0)
+  int64_t interval_us;
+  taskENTER_CRITICAL(&encoder_mux);
+  interval_us = state->pulse_interval_us;
+  taskEXIT_CRITICAL(&encoder_mux);
+
+  if (interval_us <= 0)
     return 0.0f;
-  const float T = state->pulse_interval_us * 1e-6f;
+  const float T = interval_us * 1e-6f;
   return (2.0f * (float)M_PI) / (PULSES_PER_REV * T);
 }
 
 static float compute_rpm(const encoder_state_t *state) {
-  if (state->pulse_interval_us <= 0)
+  int64_t interval_us;
+  taskENTER_CRITICAL(&encoder_mux);
+  interval_us = state->pulse_interval_us;
+  taskEXIT_CRITICAL(&encoder_mux);
+  if (interval_us <= 0)
     return 0.0f;
-  const float T = state->pulse_interval_us * 1e-6f;
+  const float T = interval_us * 1e-6f;
   return 60.0f / (PULSES_PER_REV * T);
 }
 
