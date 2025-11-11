@@ -4,8 +4,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "freertos/portmacro.h"
+#include "freertos/task.h"
 #include "math.h"
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +20,7 @@
 #define SECTOR_GPIO GPIO_NUM_22
 
 #define PULSES_PER_REV 15
-#define MAX_CALIBRATION_REVOLUTIONS 15
+#define MAX_CALIBRATION_REVS 15
 #define GLITCH_FILTER_NS 10000 // 10 µs
 #define POLL_INTERVAL_MS 200
 #define PCNT_HIGH_LIMIT 2
@@ -45,7 +45,7 @@ typedef struct {
   bool calibration_requested;
   bool calibrating;
   int revolutions;
-  int sector_time[PULSES_PER_REV][MAX_CALIBRATION_REVOLUTIONS];
+  int64_t sector_time[PULSES_PER_REV][MAX_CALIBRATION_REVS];
   float sector_correction_factor[PULSES_PER_REV];
 } encoder_state_t;
 
@@ -71,7 +71,6 @@ static bool IRAM_ATTR on_encoder_pulse(pcnt_unit_handle_t unit,
   if (state->last_pulse_time_us != 0) {
     state->pulse_interval_us = now - state->last_pulse_time_us;
   }
-
   state->last_pulse_time_us = now;
   state->current_sector = (state->current_sector + 1) % PULSES_PER_REV;
   portEXIT_CRITICAL_ISR(&encoder_mux);
@@ -89,7 +88,6 @@ static bool IRAM_ATTR on_sector_reset(pcnt_unit_handle_t unit,
   state->current_sector = 0;
 
   if (state->calibration_requested && !state->calibrating) {
-    // Inicia calibración en el primer paso por sector 0
     state->calibrating = true;
     state->calibration_requested = false;
     state->revolutions = 0;
@@ -103,7 +101,7 @@ static bool IRAM_ATTR on_sector_reset(pcnt_unit_handle_t unit,
 }
 
 // ==========================================================
-// PCNT CONFIG HELPERS
+// PCNT CONFIGURATION HELPERS
 // ==========================================================
 
 static void configure_pcnt_unit(pcnt_unit_handle_t *unit) {
@@ -168,112 +166,147 @@ static void setup_sector_pcnt(encoder_state_t *state) {
 
 static float compute_rad_s(const encoder_state_t *state) {
   int64_t interval_us;
+  int sector;
+  float correction = 1.0f;
+
   taskENTER_CRITICAL(&encoder_mux);
   interval_us = state->pulse_interval_us;
+  sector = state->current_sector;
   taskEXIT_CRITICAL(&encoder_mux);
 
   if (interval_us <= 0)
     return 0.0f;
-  const float T = interval_us * 1e-6f;
+
+  if (state->use_lut_correction) {
+    correction = state->sector_correction_factor[sector] / 100.0f;
+  }
+
+  const float T = interval_us * correction * 1e-6f;
   return (2.0f * (float)M_PI) / (PULSES_PER_REV * T);
 }
 
 static float compute_rpm(const encoder_state_t *state) {
   int64_t interval_us;
+  int sector;
+  float correction = 1.0f;
+
   taskENTER_CRITICAL(&encoder_mux);
   interval_us = state->pulse_interval_us;
+  sector = state->current_sector;
   taskEXIT_CRITICAL(&encoder_mux);
+
   if (interval_us <= 0)
     return 0.0f;
-  const float T = interval_us * 1e-6f;
+
+  if (state->use_lut_correction) {
+    correction = state->sector_correction_factor[sector] / 100.0f;
+  }
+
+  const float T = interval_us * correction * 1e-6f;
   return 60.0f / (PULSES_PER_REV * T);
 }
 
 // ==========================================================
-// CALIBRATION LOGIC
+// CALIBRATION HELPERS
 // ==========================================================
+
+static void finalize_calibration(encoder_state_t *state) {
+  ESP_LOGI(TAG, "Calibration complete. Calculating LUT...");
+
+  float global_mean = 0.0f;
+
+  for (int i = 0; i < PULSES_PER_REV; i++) {
+    float sum = 0.0f;
+    for (int r = 0; r < MAX_CALIBRATION_REVS; r++) {
+      sum += state->sector_time[i][r];
+    }
+    float mean = sum / MAX_CALIBRATION_REVS;
+    state->sector_correction_factor[i] = mean;
+    global_mean += mean;
+  }
+
+  global_mean /= PULSES_PER_REV;
+
+  // Normalize correction factors
+  for (int i = 0; i < PULSES_PER_REV; i++) {
+    state->sector_correction_factor[i] =
+        100.0f * (state->sector_correction_factor[i] / global_mean);
+  }
+
+  ESP_LOGI(TAG, "Correction LUT (%% of average):");
+  for (int i = 0; i < PULSES_PER_REV; i++) {
+    ESP_LOGI(TAG, "Sector %02d: %.1f%%", i, state->sector_correction_factor[i]);
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(1000));
+
+  // Atomically reset calibration state
+  taskENTER_CRITICAL(&encoder_mux);
+  state->calibrating = false;
+  state->revolutions = 0;
+  taskEXIT_CRITICAL(&encoder_mux);
+
+  ESP_LOGI(TAG, "Calibration finished.");
+}
 
 static void update_calibration(encoder_state_t *state) {
   if (!state->calibrating)
     return;
 
-  // Guardar tiempo de sector
-  if (state->revolutions < MAX_CALIBRATION_REVOLUTIONS) {
-    state->sector_time[state->current_sector][state->revolutions] =
-        state->pulse_interval_us;
+  int64_t interval_us;
+  int sector;
+  int revolutions;
+
+  // Safely copy values that ISR may modify
+  taskENTER_CRITICAL(&encoder_mux);
+  interval_us = state->pulse_interval_us;
+  sector = state->current_sector;
+  revolutions = state->revolutions;
+  taskEXIT_CRITICAL(&encoder_mux);
+
+  if (revolutions < MAX_CALIBRATION_REVS) {
+    state->sector_time[sector][revolutions] = interval_us;
   }
 
-  // Mostrar progreso cada vez que se completa una vuelta
   static int last_reported_rev = -1;
-  if (state->revolutions != last_reported_rev &&
-      state->revolutions < MAX_CALIBRATION_REVOLUTIONS) {
-    ESP_LOGI(TAG, "Calibrando... vuelta %d/%d", state->revolutions + 1,
-             MAX_CALIBRATION_REVOLUTIONS);
-    last_reported_rev = state->revolutions;
+  if (revolutions != last_reported_rev && revolutions < MAX_CALIBRATION_REVS) {
+    ESP_LOGI(TAG, "Calibrating... revolution %d/%d", revolutions + 1,
+             MAX_CALIBRATION_REVS);
+    last_reported_rev = revolutions;
   }
 
-  // Calibración completa
-  if (state->revolutions >= MAX_CALIBRATION_REVOLUTIONS) {
-    ESP_LOGI(TAG, "Calibración completada. Calculando LUT...");
-
-    float global_mean = 0;
-    for (int i = 0; i < PULSES_PER_REV; i++) {
-      float sum = 0;
-      for (int r = 0; r < MAX_CALIBRATION_REVOLUTIONS; r++) {
-        sum += state->sector_time[i][r];
-      }
-      float mean = sum / MAX_CALIBRATION_REVOLUTIONS;
-      state->sector_correction_factor[i] = mean;
-      global_mean += mean;
-    }
-
-    global_mean /= PULSES_PER_REV;
-
-    // Normalizar a porcentaje
-    for (int i = 0; i < PULSES_PER_REV; i++) {
-      state->sector_correction_factor[i] =
-          100.0f * (state->sector_correction_factor[i] / global_mean);
-    }
-
-    ESP_LOGI(TAG, "LUT de corrección (%% respecto a promedio):");
-    for (int i = 0; i < PULSES_PER_REV; i++) {
-      ESP_LOGI(TAG, "Sector %02d: %.1f%%", i,
-               state->sector_correction_factor[i]);
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
-
-    state->calibrating = false;
-    state->revolutions = 0;
-    ESP_LOGI(TAG, "Calibración finalizada.");
+  if (revolutions >= MAX_CALIBRATION_REVS) {
+    finalize_calibration(state);
   }
 }
 
 // ==========================================================
-// SERIAL COMMAND PARSER
+// UART COMMAND PARSER
 // ==========================================================
 
 static void handle_command(char *cmd, encoder_state_t *state) {
   if (strncmp(cmd, "invert", 6) == 0) {
     char *arg = cmd + 7;
-    if (strcmp(arg, "true") == 0) {
-      state->direction_inverted = true;
-    } else if (strcmp(arg, "false") == 0) {
-      state->direction_inverted = false;
-    }
-    ESP_LOGI(TAG, "Dirección invertida: %s",
+    state->direction_inverted = (strcmp(arg, "true") == 0);
+    ESP_LOGI(TAG, "Direction inverted: %s",
              state->direction_inverted ? "TRUE" : "FALSE");
 
   } else if (strncmp(cmd, "cal", 3) == 0) {
-    ESP_LOGI(TAG, "Esperando sector cero para iniciar calibración...");
+    ESP_LOGI(TAG, "Waiting for sector zero to start calibration...");
     state->calibration_requested = true;
 
+  } else if (strncmp(cmd, "lut", 3) == 0) {
+    char *arg = cmd + 4;
+    state->use_lut_correction = (strcmp(arg, "true") == 0);
+    ESP_LOGI(TAG, "LUT correction: %s",
+             state->use_lut_correction ? "ENABLED" : "DISABLED");
+
   } else {
-    ESP_LOGW(TAG, "Comando desconocido: %s", cmd);
+    ESP_LOGW(TAG, "Unknown command: %s", cmd);
   }
 }
 
-static void uart_command_task(void *parameter) {
+static void uart_command_task(void *pvParameter) {
   uint8_t data[UART_RX_BUF_SIZE];
   while (true) {
     int len = uart_read_bytes(UART_PORT_NUM, data, sizeof(data) - 1,
@@ -289,7 +322,7 @@ static void uart_command_task(void *parameter) {
 // MAIN TASK
 // ==========================================================
 
-static void encoder_task(void *parameter) {
+static void encoder_task(void *pvParameter) {
   setup_encoder_pcnt(&encoder);
   setup_sector_pcnt(&encoder);
 
@@ -297,15 +330,15 @@ static void encoder_task(void *parameter) {
     if (encoder.calibrating) {
       update_calibration(&encoder);
     } else {
-      // Mostrar datos sólo cuando no se calibra
       float omega = compute_rad_s(&encoder);
       float rpm = compute_rpm(&encoder);
 
-      ESP_LOGI(
-          TAG,
-          "Sector:%02d | Interval:%lld µs | ω=%.2f rad/s | %.2f RPM | Dir:%s",
-          encoder.current_sector, encoder.pulse_interval_us, omega, rpm,
-          encoder.direction_inverted ? "INV" : "NORM");
+      ESP_LOGI(TAG,
+               "Sector:%02d | Interval:%lld µs | ω=%.2f rad/s | %.2f RPM | "
+               "Dir:%s | LUT:%s",
+               encoder.current_sector, encoder.pulse_interval_us, omega, rpm,
+               encoder.direction_inverted ? "INV" : "NORM",
+               encoder.use_lut_correction ? "ON" : "OFF");
     }
     vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
   }
