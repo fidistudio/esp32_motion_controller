@@ -4,7 +4,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/portmacro.h"
 #include "freertos/task.h"
 #include "math.h"
 #include <stdlib.h>
@@ -21,7 +20,7 @@
 
 #define PULSES_PER_REV 15
 #define MAX_CALIBRATION_REVS 15
-#define GLITCH_FILTER_NS 10000 // 10 µs
+#define GLITCH_FILTER_NS 10000 // 50 µs for noise rejection
 #define POLL_INTERVAL_MS 200
 #define PCNT_HIGH_LIMIT 2
 #define PCNT_LOW_LIMIT -1
@@ -39,12 +38,15 @@ typedef struct {
   volatile int64_t last_pulse_time_us;
   volatile int64_t pulse_interval_us;
   volatile int current_sector;
+
   bool direction_inverted;
   bool use_lut_correction;
 
   bool calibration_requested;
   bool calibrating;
   int revolutions;
+
+  // [sector][revolution] time data in microseconds
   int64_t sector_time[PULSES_PER_REV][MAX_CALIBRATION_REVS];
   float sector_correction_factor[PULSES_PER_REV];
 } encoder_state_t;
@@ -70,7 +72,14 @@ static bool IRAM_ATTR on_encoder_pulse(pcnt_unit_handle_t unit,
   portENTER_CRITICAL_ISR(&encoder_mux);
   if (state->last_pulse_time_us != 0) {
     state->pulse_interval_us = now - state->last_pulse_time_us;
+
+    // During calibration, store timing immediately to ensure data consistency
+    if (state->calibrating && state->revolutions < MAX_CALIBRATION_REVS) {
+      state->sector_time[state->current_sector][state->revolutions] =
+          state->pulse_interval_us;
+    }
   }
+
   state->last_pulse_time_us = now;
   state->current_sector = (state->current_sector + 1) % PULSES_PER_REV;
   portEXIT_CRITICAL_ISR(&encoder_mux);
@@ -91,6 +100,8 @@ static bool IRAM_ATTR on_sector_reset(pcnt_unit_handle_t unit,
     state->calibrating = true;
     state->calibration_requested = false;
     state->revolutions = 0;
+    // Clear previous calibration data
+    memset(state->sector_time, 0, sizeof(state->sector_time));
   } else if (state->calibrating) {
     state->revolutions++;
   }
@@ -171,14 +182,14 @@ static float compute_rad_s(const encoder_state_t *state) {
 
   taskENTER_CRITICAL(&encoder_mux);
   interval_us = state->pulse_interval_us;
-  sector = state->current_sector;
+  sector = (state->current_sector - 1 + PULSES_PER_REV) % PULSES_PER_REV;
   taskEXIT_CRITICAL(&encoder_mux);
 
   if (interval_us <= 0)
     return 0.0f;
 
   if (state->use_lut_correction) {
-    correction = state->sector_correction_factor[sector] / 100.0f;
+    correction = 1.0f / (state->sector_correction_factor[sector] / 100.0f);
   }
 
   const float T = interval_us * correction * 1e-6f;
@@ -192,14 +203,14 @@ static float compute_rpm(const encoder_state_t *state) {
 
   taskENTER_CRITICAL(&encoder_mux);
   interval_us = state->pulse_interval_us;
-  sector = state->current_sector;
+  sector = (state->current_sector - 1 + PULSES_PER_REV) % PULSES_PER_REV;
   taskEXIT_CRITICAL(&encoder_mux);
 
   if (interval_us <= 0)
     return 0.0f;
 
   if (state->use_lut_correction) {
-    correction = state->sector_correction_factor[sector] / 100.0f;
+    correction = 1.0f / (state->sector_correction_factor[sector] / 100.0f);
   }
 
   const float T = interval_us * correction * 1e-6f;
@@ -210,17 +221,31 @@ static float compute_rpm(const encoder_state_t *state) {
 // CALIBRATION HELPERS
 // ==========================================================
 
+// Compute mean excluding min/max (robust average)
+static float compute_robust_mean(const int64_t *samples, int n) {
+  int64_t min = INT64_MAX, max = 0, sum = 0;
+  for (int i = 0; i < n; i++) {
+    if (samples[i] == 0)
+      continue;
+    if (samples[i] < min)
+      min = samples[i];
+    if (samples[i] > max)
+      max = samples[i];
+    sum += samples[i];
+  }
+  if (n > 2)
+    sum -= (min + max);
+  return (float)sum / (float)(n > 2 ? n - 2 : n);
+}
+
 static void finalize_calibration(encoder_state_t *state) {
   ESP_LOGI(TAG, "Calibration complete. Calculating LUT...");
 
   float global_mean = 0.0f;
 
   for (int i = 0; i < PULSES_PER_REV; i++) {
-    float sum = 0.0f;
-    for (int r = 0; r < MAX_CALIBRATION_REVS; r++) {
-      sum += state->sector_time[i][r];
-    }
-    float mean = sum / MAX_CALIBRATION_REVS;
+    float mean =
+        compute_robust_mean(state->sector_time[i], MAX_CALIBRATION_REVS);
     state->sector_correction_factor[i] = mean;
     global_mean += mean;
   }
@@ -238,9 +263,6 @@ static void finalize_calibration(encoder_state_t *state) {
     ESP_LOGI(TAG, "Sector %02d: %.1f%%", i, state->sector_correction_factor[i]);
   }
 
-  vTaskDelay(pdMS_TO_TICKS(1000));
-
-  // Atomically reset calibration state
   taskENTER_CRITICAL(&encoder_mux);
   state->calibrating = false;
   state->revolutions = 0;
@@ -253,29 +275,12 @@ static void update_calibration(encoder_state_t *state) {
   if (!state->calibrating)
     return;
 
-  int64_t interval_us;
-  int sector;
-  int revolutions;
-
-  // Safely copy values that ISR may modify
+  int rev;
   taskENTER_CRITICAL(&encoder_mux);
-  interval_us = state->pulse_interval_us;
-  sector = state->current_sector;
-  revolutions = state->revolutions;
+  rev = state->revolutions;
   taskEXIT_CRITICAL(&encoder_mux);
 
-  if (revolutions < MAX_CALIBRATION_REVS) {
-    state->sector_time[sector][revolutions] = interval_us;
-  }
-
-  static int last_reported_rev = -1;
-  if (revolutions != last_reported_rev && revolutions < MAX_CALIBRATION_REVS) {
-    ESP_LOGI(TAG, "Calibrating... revolution %d/%d", revolutions + 1,
-             MAX_CALIBRATION_REVS);
-    last_reported_rev = revolutions;
-  }
-
-  if (revolutions >= MAX_CALIBRATION_REVS) {
+  if (rev >= MAX_CALIBRATION_REVS) {
     finalize_calibration(state);
   }
 }
@@ -306,6 +311,15 @@ static void handle_command(char *cmd, encoder_state_t *state) {
   }
 }
 
+static void trim_newline(char *str) {
+  char *p = str;
+  while (*p) {
+    if (*p == '\r' || *p == '\n')
+      *p = '\0';
+    p++;
+  }
+}
+
 static void uart_command_task(void *pvParameter) {
   uint8_t data[UART_RX_BUF_SIZE];
   while (true) {
@@ -313,6 +327,7 @@ static void uart_command_task(void *pvParameter) {
                               pdMS_TO_TICKS(50));
     if (len > 0) {
       data[len] = '\0';
+      trim_newline((char *)data);
       handle_command((char *)data, &encoder);
     }
   }
