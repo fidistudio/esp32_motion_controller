@@ -1,11 +1,14 @@
 #include "driver/gpio.h"
 #include "driver/pulse_cnt.h"
 #include "driver/uart.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "math.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -20,7 +23,7 @@
 
 #define PULSES_PER_REV 15
 #define MAX_CALIBRATION_REVS 15
-#define GLITCH_FILTER_NS 10000 // 50 µs for noise rejection
+#define GLITCH_FILTER_NS 10000 // 10 µs for noise rejection
 #define POLL_INTERVAL_MS 200
 #define PCNT_HIGH_LIMIT 2
 #define PCNT_LOW_LIMIT -1
@@ -48,7 +51,7 @@ typedef struct {
 
   // [sector][revolution] time data in microseconds
   int64_t sector_time[PULSES_PER_REV][MAX_CALIBRATION_REVS];
-  float sector_correction_factor[PULSES_PER_REV];
+  float sector_correction_factor[PULSES_PER_REV][2]; // [sector][direction]
 } encoder_state_t;
 
 // ==========================================================
@@ -100,7 +103,6 @@ static bool IRAM_ATTR on_sector_reset(pcnt_unit_handle_t unit,
     state->calibrating = true;
     state->calibration_requested = false;
     state->revolutions = 0;
-    // Clear previous calibration data
     memset(state->sector_time, 0, sizeof(state->sector_time));
   } else if (state->calibrating) {
     state->revolutions++;
@@ -172,6 +174,70 @@ static void setup_sector_pcnt(encoder_state_t *state) {
 }
 
 // ==========================================================
+// NVS HELPERS (for LUT storage)
+// ==========================================================
+
+static void save_lut_to_nvs(const encoder_state_t *state) {
+  nvs_handle_t nvs;
+  esp_err_t err = nvs_open("encoder", NVS_READWRITE, &nvs);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to open NVS: %s", esp_err_to_name(err));
+    return;
+  }
+
+  float lut[PULSES_PER_REV][2];
+  size_t lut_size = sizeof(lut);
+  memset(lut, 0, lut_size);
+
+  // Load existing LUT if available (so we don’t overwrite the other direction)
+  err = nvs_get_blob(nvs, "lut", lut, &lut_size);
+  if (err == ESP_ERR_NVS_NOT_FOUND) {
+    ESP_LOGW(TAG, "No previous LUT found, creating new one...");
+  }
+
+  int dir_idx = state->direction_inverted ? 1 : 0;
+  for (int i = 0; i < PULSES_PER_REV; i++) {
+    lut[i][dir_idx] = state->sector_correction_factor[i][dir_idx];
+  }
+
+  err = nvs_set_blob(nvs, "lut", lut, sizeof(lut));
+  if (err == ESP_OK) {
+    nvs_commit(nvs);
+    ESP_LOGI(TAG, "LUT (%s) saved to NVS.",
+             state->direction_inverted ? "INVERTED" : "NORMAL");
+  } else {
+    ESP_LOGE(TAG, "Failed to save LUT: %s", esp_err_to_name(err));
+  }
+
+  nvs_close(nvs);
+}
+
+static void load_lut_from_nvs(encoder_state_t *state) {
+  nvs_handle_t nvs;
+  esp_err_t err = nvs_open("encoder", NVS_READONLY, &nvs);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "No NVS data found (%s)", esp_err_to_name(err));
+    return;
+  }
+
+  float lut[PULSES_PER_REV][2];
+  size_t lut_size = sizeof(lut);
+  err = nvs_get_blob(nvs, "lut", lut, &lut_size);
+  if (err == ESP_OK) {
+    int dir_idx = state->direction_inverted ? 1 : 0;
+    for (int i = 0; i < PULSES_PER_REV; i++) {
+      state->sector_correction_factor[i][dir_idx] = lut[i][dir_idx];
+    }
+    ESP_LOGI(TAG, "LUT (%s) loaded from NVS.",
+             state->direction_inverted ? "INVERTED" : "NORMAL");
+  } else {
+    ESP_LOGW(TAG, "No LUT found in NVS (%s)", esp_err_to_name(err));
+  }
+
+  nvs_close(nvs);
+}
+
+// ==========================================================
 // UTILITY FUNCTIONS
 // ==========================================================
 
@@ -189,7 +255,9 @@ static float compute_rad_s(const encoder_state_t *state) {
     return 0.0f;
 
   if (state->use_lut_correction) {
-    correction = 1.0f / (state->sector_correction_factor[sector] / 100.0f);
+    int dir_idx = state->direction_inverted ? 1 : 0;
+    correction =
+        1.0f / (state->sector_correction_factor[sector][dir_idx] / 100.0f);
   }
 
   const float T = interval_us * correction * 1e-6f;
@@ -210,7 +278,9 @@ static float compute_rpm(const encoder_state_t *state) {
     return 0.0f;
 
   if (state->use_lut_correction) {
-    correction = 1.0f / (state->sector_correction_factor[sector] / 100.0f);
+    int dir_idx = state->direction_inverted ? 1 : 0;
+    correction =
+        1.0f / (state->sector_correction_factor[sector][dir_idx] / 100.0f);
   }
 
   const float T = interval_us * correction * 1e-6f;
@@ -221,7 +291,6 @@ static float compute_rpm(const encoder_state_t *state) {
 // CALIBRATION HELPERS
 // ==========================================================
 
-// Compute mean excluding min/max (robust average)
 static float compute_robust_mean(const int64_t *samples, int n) {
   int64_t min = INT64_MAX, max = 0, sum = 0;
   for (int i = 0; i < n; i++) {
@@ -242,31 +311,35 @@ static void finalize_calibration(encoder_state_t *state) {
   ESP_LOGI(TAG, "Calibration complete. Calculating LUT...");
 
   float global_mean = 0.0f;
+  int dir_idx = state->direction_inverted ? 1 : 0;
 
   for (int i = 0; i < PULSES_PER_REV; i++) {
     float mean =
         compute_robust_mean(state->sector_time[i], MAX_CALIBRATION_REVS);
-    state->sector_correction_factor[i] = mean;
+    state->sector_correction_factor[i][dir_idx] = mean;
     global_mean += mean;
   }
 
   global_mean /= PULSES_PER_REV;
 
-  // Normalize correction factors
   for (int i = 0; i < PULSES_PER_REV; i++) {
-    state->sector_correction_factor[i] =
-        100.0f * (state->sector_correction_factor[i] / global_mean);
+    state->sector_correction_factor[i][dir_idx] =
+        100.0f * (state->sector_correction_factor[i][dir_idx] / global_mean);
   }
 
-  ESP_LOGI(TAG, "Correction LUT (%% of average):");
+  ESP_LOGI(TAG, "Correction LUT (%% of average) [%s]:",
+           state->direction_inverted ? "INVERTED" : "NORMAL");
   for (int i = 0; i < PULSES_PER_REV; i++) {
-    ESP_LOGI(TAG, "Sector %02d: %.1f%%", i, state->sector_correction_factor[i]);
+    ESP_LOGI(TAG, "Sector %02d: %.1f%%", i,
+             state->sector_correction_factor[i][dir_idx]);
   }
 
   taskENTER_CRITICAL(&encoder_mux);
   state->calibrating = false;
   state->revolutions = 0;
   taskEXIT_CRITICAL(&encoder_mux);
+
+  save_lut_to_nvs(state);
 
   ESP_LOGI(TAG, "Calibration finished.");
 }
@@ -295,6 +368,7 @@ static void handle_command(char *cmd, encoder_state_t *state) {
     state->direction_inverted = (strcmp(arg, "true") == 0);
     ESP_LOGI(TAG, "Direction inverted: %s",
              state->direction_inverted ? "TRUE" : "FALSE");
+    load_lut_from_nvs(state);
 
   } else if (strncmp(cmd, "cal", 3) == 0) {
     ESP_LOGI(TAG, "Waiting for sector zero to start calibration...");
@@ -364,6 +438,16 @@ static void encoder_task(void *pvParameter) {
 // ==========================================================
 
 void app_main(void) {
+  // Initialize NVS
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+      ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ret = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(ret);
+
+  // UART setup
   const uart_config_t uart_config = {
       .baud_rate = 115200,
       .data_bits = UART_DATA_8_BITS,
@@ -373,6 +457,9 @@ void app_main(void) {
   };
   uart_driver_install(UART_PORT_NUM, UART_RX_BUF_SIZE * 2, 0, 0, NULL, 0);
   uart_param_config(UART_PORT_NUM, &uart_config);
+
+  // Load LUT for initial direction
+  load_lut_from_nvs(&encoder);
 
   xTaskCreate(uart_command_task, "uart_command_task", 2048, NULL, 4, NULL);
   xTaskCreate(encoder_task, "encoder_task", 4096, NULL, 5, NULL);
