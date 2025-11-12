@@ -21,6 +21,7 @@ venv/
 
 # Espressif tools cache
 .espressif/
+.cache/
 
 # Logs and temporary files
 *.log
