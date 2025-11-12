@@ -1,14 +1,14 @@
 #include "driver/gpio.h"
 #include "driver/pulse_cnt.h"
 #include "driver/uart.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "esp_err.h"
-#include "nvs_flash.h"
-#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "math.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -256,7 +256,8 @@ static float compute_rad_s(const encoder_state_t *state) {
 
   if (state->use_lut_correction) {
     int dir_idx = state->direction_inverted ? 1 : 0;
-    correction = 1.0f / (state->sector_correction_factor[sector][dir_idx] / 100.0f);
+    correction =
+        1.0f / (state->sector_correction_factor[sector][dir_idx] / 100.0f);
   }
 
   const float T = interval_us * correction * 1e-6f;
@@ -278,7 +279,8 @@ static float compute_rpm(const encoder_state_t *state) {
 
   if (state->use_lut_correction) {
     int dir_idx = state->direction_inverted ? 1 : 0;
-    correction = 1.0f / (state->sector_correction_factor[sector][dir_idx] / 100.0f);
+    correction =
+        1.0f / (state->sector_correction_factor[sector][dir_idx] / 100.0f);
   }
 
   const float T = interval_us * correction * 1e-6f;
@@ -312,7 +314,8 @@ static void finalize_calibration(encoder_state_t *state) {
   int dir_idx = state->direction_inverted ? 1 : 0;
 
   for (int i = 0; i < PULSES_PER_REV; i++) {
-    float mean = compute_robust_mean(state->sector_time[i], MAX_CALIBRATION_REVS);
+    float mean =
+        compute_robust_mean(state->sector_time[i], MAX_CALIBRATION_REVS);
     state->sector_correction_factor[i][dir_idx] = mean;
     global_mean += mean;
   }
@@ -437,7 +440,8 @@ static void encoder_task(void *pvParameter) {
 void app_main(void) {
   // Initialize NVS
   esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+      ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_ERROR_CHECK(nvs_flash_erase());
     ret = nvs_flash_init();
   }
