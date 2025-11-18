@@ -1,5 +1,6 @@
 #include "Encoder.h"
 #include "LUTCorrection.h"
+#include "MotorPWM.h"
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -11,16 +12,17 @@
 #define ENCODER_GPIO GPIO_NUM_23
 #define SECTOR_GPIO GPIO_NUM_22
 
+#define MOTOR1_IN1_PIN GPIO_NUM_25
+#define MOTOR1_IN2_PIN GPIO_NUM_26
+
 #define UART_PORT_NUM UART_NUM_0
 #define UART_RX_BUF_SIZE 128
 #define POLL_INTERVAL_MS 200
 
 // ---------------- Global Objects ----------------
 Encoder encoder(ENCODER_GPIO, SECTOR_GPIO);
-LUTCorrection
-    lut(&encoder.state_,
-        "encoder"); // Cambiar nombre NVS si quieres "encoder_right", etc.
-
+LUTCorrection lut(&encoder.state_, "encoder");
+MotorPWM motor1(MOTOR1_IN1_PIN, MOTOR1_IN2_PIN, LEDC_CHANNEL_0, LEDC_CHANNEL_1);
 // ---------------- UART Command Parser ----------------
 
 static void trim_newline(char *str) {
@@ -50,6 +52,16 @@ static void handle_command(char *cmd) {
     ESP_LOGI(TAG, "LUT correction: %s",
              encoder.state_.use_lut_correction ? "ENABLED" : "DISABLED");
 
+  } else if (strncmp(cmd, "motor1", 6) == 0) {
+    float value = 0.0f;
+    if (sscanf(cmd + 7, "%f", &value) == 1) {
+      motor1.setDuty(value);
+      encoder.setDirectionInverted(motor1.isDirectionInverted());
+
+      ESP_LOGI(TAG, "Motor duty: %.2f", value);
+    } else {
+      ESP_LOGW(TAG, "Invalid motor1 command: %s", cmd);
+    }
   } else {
     ESP_LOGW(TAG, "Unknown command: %s", cmd);
   }
@@ -156,6 +168,7 @@ extern "C" void app_main() {
   // Initialize encoder and load LUT
   encoder.begin();
   lut.loadLUT();
+  motor1.begin();
 
   // Create tasks
   xTaskCreate(uart_command_task, "uart_command_task", 2048, NULL, 4, NULL);
