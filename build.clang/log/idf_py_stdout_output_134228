@@ -1,0 +1,27 @@
+Command: ninja all
+[1/12] Performing build step for 'bootloader'
+[1/1] cd /home/fidel/esp/HallEncoder/build.clang/bootloader/esp-idf/esptool_py && /home/fidel/.espressif/python_env/idf5.5_py3.12_env/bin/python /home/fidel/esp/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x1000 /home/fidel/esp/HallEncoder/build.clang/bootloader/bootloader.bin
+Bootloader binary size 0x6680 bytes. 0x980 bytes (8%) free.
+[2/12] No install step for 'bootloader'
+[3/12] Completed 'bootloader'
+[4/12] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/MotorPWM.cpp.obj
+[5/12] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/Encoder.cpp.obj
+[6/12] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/LUTCorrection.cpp.obj
+[7/12] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/HallEncoder.cpp.obj
+/home/fidel/esp/HallEncoder/main/HallEncoder.cpp: In function 'void app_main()':
+/home/fidel/esp/HallEncoder/main/HallEncoder.cpp:164:3: warning: missing initializer for member 'uart_config_t::rx_flow_ctrl_thresh' [-Wmissing-field-initializers]
+  164 |   };
+      |   ^
+/home/fidel/esp/HallEncoder/main/HallEncoder.cpp:164:3: warning: missing initializer for member 'uart_config_t::<anonymous>' [-Wmissing-field-initializers]
+/home/fidel/esp/HallEncoder/main/HallEncoder.cpp:164:3: warning: missing initializer for member 'uart_config_t::flags' [-Wmissing-field-initializers]
+[8/12] Linking C static library esp-idf/main/libmain.a
+[9/12] Generating esp-idf/esp_system/ld/sections.ld
+[10/12] Linking CXX executable HallEncoder.elf
+[11/12] Generating binary image from built executable
+esptool.py v4.10.0
+Creating esp32 image...
+Merged 2 ELF sections
+Successfully created esp32 image.
+Generated /home/fidel/esp/HallEncoder/build.clang/HallEncoder.bin
+[12/12] cd /home/fidel/esp/HallEncoder/build.clang/esp-idf/esptool_py && /home/fidel/.espressif/python_env/idf5.5_py3.12_env/bin/python /home/fidel/esp/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app /home/fidel/esp/HallEncoder/build.clang/partition_table/partition-table.bin /home/fidel/esp/HallEncoder/build.clang/HallEncoder.bin
+HallEncoder.bin binary size 0x44970 bytes. Smallest app partition is 0x100000 bytes. 0xbb690 bytes (73%) free.

@@ -1,0 +1,2 @@
+source /home/fidel/esp/HallEncoder/build.clang/bootloader/gdbinit/symbols
+source /home/fidel/esp/HallEncoder/build.clang/bootloader/gdbinit/connect
