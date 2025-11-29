@@ -1,32 +1,37 @@
-# Build artifacts
-/build/
+# ==============================
+# ESP-IDF project stable .gitignore
+# ==============================
+
+# Build artefacts (no necesarios para compilar desde cero)
+build/
+build.clang/
 *.bin
 *.elf
 *.map
+*.log
+*.tmp
 
-# Configuration backups
+# Espressif tools cache (reproducible desde IDF)
+.espressif/
+.cache/
+
+# SDK config backups (el sdkconfig principal sí se guarda)
 sdkconfig.old
 sdkconfig.defaults
+sdkconfig.ci
 
-# IDE and editor files
+# IDE / Editores
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Python virtual environments
+# Python virtual env
 .venv/
 env/
 venv/
 
-# Espressif tools cache
-.espressif/
-.cache/
-
-# Logs and temporary files
-*.log
-*.tmp
-
-# macOS / Linux cruft
+# OS files
 .DS_Store
 Thumbs.db
+
