@@ -15,6 +15,7 @@ public:
   void begin();
   void setDuty(float duty); // -1.0 ... 1.0
   bool isDirectionInverted() const { return direction_inverted_; }
+  bool isMotorOff() const { return motor_stoped_;}
 
 private:
   void configureTimer();
@@ -30,4 +31,5 @@ private:
   uint8_t resolution_bits_;
 
   bool direction_inverted_ = false;
+  bool motor_stoped_ = false;
 };

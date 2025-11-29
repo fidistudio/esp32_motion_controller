@@ -29,6 +29,7 @@ typedef struct {
 
   bool calibration_requested;
   bool calibrating;
+  bool velocity_reseted;
   int revolutions;
 
   int64_t sector_time[PULSES_PER_REV][MAX_CALIBRATION_REVS];
@@ -46,6 +47,21 @@ public:
   void requestCalibration() { state_.calibration_requested = true; }
   void setDirectionInverted(bool inverted) {
     state_.direction_inverted = inverted;
+  }
+
+  void isVelocityReseted(bool isMotorOff) {
+    state_.velocity_reseted = isMotorOff;
+
+    if (isMotorOff) {
+      state_.pulse_interval_us = 0;
+      state_.last_pulse_time_us = 0;
+
+      if (encoder_unit_) {
+        pcnt_unit_stop(encoder_unit_);
+        pcnt_unit_clear_count(encoder_unit_);
+        pcnt_unit_start(encoder_unit_);
+      }
+    }
   }
 
   float computeRadPerSec();

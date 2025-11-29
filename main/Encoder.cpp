@@ -144,7 +144,7 @@ float Encoder::computeRadPerSec() {
   sector = (state_.current_sector - 1 + PULSES_PER_REV) % PULSES_PER_REV;
   taskEXIT_CRITICAL(&encoder_mux);
 
-  if (interval_us <= 0)
+  if (interval_us <= 0 || state_.velocity_reseted)
     return 0.0f;
 
   if (state_.use_lut_correction) {
@@ -167,7 +167,7 @@ float Encoder::computeRPM() {
   sector = (state_.current_sector - 1 + PULSES_PER_REV) % PULSES_PER_REV;
   taskEXIT_CRITICAL(&encoder_mux);
 
-  if (interval_us <= 0)
+  if (interval_us <= 0 || state_.velocity_reseted)
     return 0.0f;
 
   if (state_.use_lut_correction) {

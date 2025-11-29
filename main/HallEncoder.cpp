@@ -57,6 +57,7 @@ static void handle_command(char *cmd) {
     if (sscanf(cmd + 7, "%f", &value) == 1) {
       motor1.setDuty(value);
       encoder.setDirectionInverted(motor1.isDirectionInverted());
+      encoder.isVelocityReseted(motor1.isMotorOff());
 
       ESP_LOGI(TAG, "Motor duty: %.2f", value);
     } else {
