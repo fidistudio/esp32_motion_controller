@@ -46,7 +46,11 @@ public:
   bool isCalibrating() const { return state_.calibrating; }
   void requestCalibration() { state_.calibration_requested = true; }
   void setDirectionInverted(bool inverted) {
-    state_.direction_inverted = inverted;
+    if (state_.direction_inverted != inverted) {
+      int current = state_.current_sector;
+      state_.current_sector = (PULSES_PER_REV - current) % PULSES_PER_REV;
+    }
+    state_.direction_inverted = inverted
   }
 
   void isVelocityReseted(bool isMotorOff) {
