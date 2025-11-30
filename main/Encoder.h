@@ -50,7 +50,7 @@ public:
       int current = state_.current_sector;
       state_.current_sector = (PULSES_PER_REV - current) % PULSES_PER_REV;
     }
-    state_.direction_inverted = inverted
+    state_.direction_inverted = inverted;
   }
 
   void isVelocityReseted(bool isMotorOff) {
