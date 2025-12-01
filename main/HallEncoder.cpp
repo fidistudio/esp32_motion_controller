@@ -3,8 +3,11 @@
 #include "MotorPWM.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/projdefs.h"
 #include "freertos/task.h"
+#include <cstdint>
 #include <string.h>
 
 #define TAG "HALL_ENCODER"
@@ -18,6 +21,8 @@
 #define UART_PORT_NUM UART_NUM_0
 #define UART_RX_BUF_SIZE 128
 #define POLL_INTERVAL_MS 200
+
+volatile bool step_logging = false;
 
 // ---------------- Global Objects ----------------
 Encoder encoder(ENCODER_GPIO, SECTOR_GPIO);
@@ -63,9 +68,15 @@ static void handle_command(char *cmd) {
     } else {
       ESP_LOGW(TAG, "Invalid motor1 command: %s", cmd);
     }
+
   } else if (strncmp(cmd, "print", 5) == 0) {
     ESP_LOGI(TAG, "Printing LUT...");
     lut.printLUT();
+
+  } else if (strncmp(cmd, "step", 4) == 0) {
+    step_logging = true;
+    ESP_LOGW(TAG, "Prueba STEP iniciada");
+
   } else {
     ESP_LOGW(TAG, "Unknown command: %s", cmd);
   }
@@ -132,7 +143,43 @@ static void encoder_task(void *pvParameter) {
         encoder.state_.calibrating = false;
         encoder.state_.revolutions = 0;
       }
+    } else if (step_logging) {
+
+      const int64_t STEP_TOTAL_US = 5000000LL; // Duración total: 5 s en µs
+      const int64_t STEP_ZERO_US = 1000000LL;  // 1 s en µs con duty = 0
+      const int64_t t0 = esp_timer_get_time();
+
+      motor1.setDuty(0.0f);
+      float last_set_duty = 0.0f;
+
+      printf("# BEGIN_STEP\n");
+      printf("# t_ms, duty, vel_rad_s\n");
+
+      while ((esp_timer_get_time() - t0) < STEP_TOTAL_US) {
+        int64_t elapsed = esp_timer_get_time() - t0; // µs
+        float duty = (elapsed < STEP_ZERO_US) ? 0.0f : 1.0f;
+
+        if (duty != last_set_duty) {
+          encoder.state_.velocity_reseted = false;
+          motor1.setDuty(duty);
+          last_set_duty = duty;
+        }
+
+        float vel = encoder.computeRadPerSec();
+
+        int64_t elapsed_ms = elapsed / 1000LL;
+        printf("%lld, %.3f, %.4f\n", (long long)elapsed_ms, duty, vel);
+
+        vTaskDelay(pdMS_TO_TICKS(10)); // resolución 10 ms
+      }
+
+      printf("END_STEP\n");
+      // Apagar motor y restaurar estado
+      motor1.setDuty(0.0f);
+      step_logging = false;
+      ESP_LOGW(TAG, "STEP FINALIZADO. Logging normal reactivado.");
     } else {
+
       float omega = encoder.computeRadPerSec();
       float rpm = encoder.computeRPM();
       ESP_LOGI(TAG,
