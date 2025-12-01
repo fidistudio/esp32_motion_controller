@@ -57,11 +57,15 @@ static void handle_command(char *cmd) {
     if (sscanf(cmd + 7, "%f", &value) == 1) {
       motor1.setDuty(value);
       encoder.setDirectionInverted(motor1.isDirectionInverted());
+      encoder.isVelocityReseted(motor1.isMotorOff());
 
       ESP_LOGI(TAG, "Motor duty: %.2f", value);
     } else {
       ESP_LOGW(TAG, "Invalid motor1 command: %s", cmd);
     }
+  } else if (strncmp(cmd, "print", 5) == 0) {
+    ESP_LOGI(TAG, "Printing LUT...");
+    lut.printLUT();
   } else {
     ESP_LOGW(TAG, "Unknown command: %s", cmd);
   }
@@ -171,6 +175,6 @@ extern "C" void app_main() {
   motor1.begin();
 
   // Create tasks
-  xTaskCreate(uart_command_task, "uart_command_task", 2048, NULL, 4, NULL);
+  xTaskCreate(uart_command_task, "uart_command_task", 4096, NULL, 4, NULL);
   xTaskCreate(encoder_task, "encoder_task", 4096, NULL, 5, NULL);
 }
