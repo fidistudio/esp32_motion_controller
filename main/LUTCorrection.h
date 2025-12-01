@@ -19,6 +19,7 @@ public:
 
   void saveLUT();
   void loadLUT();
+  void printLUT();
 
 private:
   encoder_state_t *state_;

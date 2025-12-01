@@ -48,7 +48,7 @@ public:
   void setDirectionInverted(bool inverted) {
     if (state_.direction_inverted != inverted) {
       int current = state_.current_sector;
-      state_.current_sector = (PULSES_PER_REV - current) % PULSES_PER_REV;
+      state_.current_sector = (PULSES_PER_REV - current - 1) % PULSES_PER_REV;
     }
     state_.direction_inverted = inverted;
   }
