@@ -23,6 +23,7 @@
 #define POLL_INTERVAL_MS 200
 
 volatile bool step_logging = false;
+volatile bool ramp_logging = false;
 
 // ---------------- Global Objects ----------------
 Encoder encoder(ENCODER_GPIO, SECTOR_GPIO);
@@ -76,6 +77,10 @@ static void handle_command(char *cmd) {
   } else if (strncmp(cmd, "step", 4) == 0) {
     step_logging = true;
     ESP_LOGW(TAG, "Prueba STEP iniciada");
+
+  } else if (strncmp(cmd, "ramp", 4) == 0) {
+    ramp_logging = true;
+    ESP_LOGW(TAG, "Prueba RAMP iniciada");
 
   } else {
     ESP_LOGW(TAG, "Unknown command: %s", cmd);
@@ -177,7 +182,48 @@ static void encoder_task(void *pvParameter) {
       // Apagar motor y restaurar estado
       motor1.setDuty(0.0f);
       step_logging = false;
+      encoder.state_.velocity_reseted = true;
       ESP_LOGW(TAG, "STEP FINALIZADO. Logging normal reactivado.");
+
+    } else if (ramp_logging) {
+
+      const int64_t RAMP_TOTAL_US = 5000000LL; // 5 s en µs
+      const int64_t t0 = esp_timer_get_time();
+
+      motor1.setDuty(0.0f);
+      float last_set_duty = 0.0f;
+
+      printf("# BEGIN_RAMP\n");
+      printf("# t_ms, duty, vel_rad_s\n");
+
+      while ((esp_timer_get_time() - t0) < RAMP_TOTAL_US) {
+        int64_t elapsed = esp_timer_get_time() - t0; // µs
+
+        // duty lineal de 0 a 1 en 5s
+        float duty = (float)elapsed / (float)RAMP_TOTAL_US;
+        if (duty > 1.0f)
+          duty = 1.0f;
+
+        if (duty != last_set_duty) {
+          encoder.state_.velocity_reseted = false;
+          motor1.setDuty(duty);
+          last_set_duty = duty;
+        }
+
+        float vel = encoder.computeRadPerSec();
+        int64_t elapsed_ms = elapsed / 1000LL;
+
+        printf("%lld, %.3f, %.4f\n", (long long)elapsed_ms, duty, vel);
+
+        vTaskDelay(pdMS_TO_TICKS(10)); // resolución 10 ms
+      }
+
+      printf("END_RAMP\n");
+
+      motor1.setDuty(0.0f);
+      ramp_logging = false;
+      encoder.state_.velocity_reseted = true;
+      ESP_LOGW(TAG, "RAMPA FINALIZADA. Logging normal reactivado.");
     } else {
 
       float omega = encoder.computeRadPerSec();
