@@ -27,7 +27,7 @@ volatile bool ramp_logging = false;
 
 // ---------------- Global Objects ----------------
 Encoder encoder(ENCODER_GPIO, SECTOR_GPIO);
-LUTCorrection lut(&encoder.state_, "encoder");
+LUTCorrection lut(&encoder.state_, "encoder_left");
 MotorPWM motor1(MOTOR1_IN1_PIN, MOTOR1_IN2_PIN, LEDC_CHANNEL_0, LEDC_CHANNEL_1);
 // ---------------- UART Command Parser ----------------
 
