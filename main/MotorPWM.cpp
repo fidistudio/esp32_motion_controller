@@ -50,6 +50,7 @@ void MotorPWM::setDuty(float duty) {
   if (duty < -1.0f)
     duty = -1.0f;
 
+  duty_ = duty;
   motor_stoped_ = duty == 0;
   direction_inverted_ = duty < 0;
 
