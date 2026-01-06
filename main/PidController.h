@@ -1,39 +1,49 @@
-
-#ifndef PID_CONTROLLER_H
-#define PID_CONTROLLER_H
+#pragma once
 
 #include <cstdint>
 
-struct PidConfig {
-  double kp;
-  double ki;
-  double kd;
-  double ts; // Sample time in seconds
-  double tf; // Derivative filter time constant (Tf = 0 means no filter)
+struct PidGains {
+  float kp;
+  float ki;
+  float kd;
+};
+
+struct PidTiming {
+  float sampleTime; // Ts [s]
+  float filterTime; // Tf [s] (0 = no filter)
 };
 
 class PidController {
 public:
-  explicit PidController(const PidConfig &config);
+  PidController(const PidGains &gains, const PidTiming &timing);
 
-  double compute(double error);
+  float update(float error);
   void reset();
 
 private:
-  void computeDiscreteCoefficients(const PidConfig &cfg);
+  // --- Initialization steps ---
+  void computeContinuousModel();
+  void discretizeModel();
 
-  // Discrete-time coefficients (Tustin)
-  double b0_;
-  double b1_;
-  double b2_;
-  double a1_;
-  double a2_;
+  // --- User configuration ---
+  PidGains gains_;
+  PidTiming timing_;
 
-  // Previous values
-  double e1_;
-  double e2_;
-  double u1_;
-  double u2_;
+  // --- Continuous-time model coefficients ---
+  float contA_;
+  float contB_;
+  float contC_;
+
+  // --- Discrete-time (Tustin) coefficients ---
+  float b0_;
+  float b1_;
+  float b2_;
+  float a1_;
+  float a2_;
+
+  // --- Controller state ---
+  float prevError1_;
+  float prevError2_;
+  float prevOutput1_;
+  float prevOutput2_;
 };
-
-#endif // PID_CONTROLLER_H
