@@ -13,83 +13,95 @@ extern "C" {
 #include "freertos/portmacro.h"
 }
 
-#define PULSES_PER_REV 15
-#define MAX_CALIBRATION_REVS 15
-#define GLITCH_FILTER_NS 10000 // 10 µs
-#define PCNT_HIGH_LIMIT 2
-#define PCNT_LOW_LIMIT -1
+// ---------------- Constants ----------------
 
-typedef struct {
-  volatile int64_t last_pulse_time_us;
-  volatile int64_t pulse_interval_us;
-  volatile int current_sector;
+constexpr int PULSES_PER_REV = 15;
+constexpr int MAX_CALIBRATION_REVS = 15;
+constexpr int GLITCH_FILTER_NS = 10000; // 10 µs
 
-  bool direction_inverted;
-  bool use_lut_correction;
+constexpr int PCNT_SINGLE_PULSE_HIGH = 2;
+constexpr int PCNT_SINGLE_PULSE_LOW = -1;
 
-  bool calibration_requested;
-  bool calibrating;
-  bool velocity_reseted;
-  int revolutions;
+// ---------------- Runtime State ----------------
 
-  int64_t sector_time[PULSES_PER_REV][MAX_CALIBRATION_REVS];
-  float sector_correction_factor[PULSES_PER_REV][2];
-} encoder_state_t;
+struct EncoderRuntimeState {
+  volatile int64_t lastPulseTimeUs;
+  volatile int64_t pulseIntervalUs;
+  volatile int currentSector;
+
+  bool isDirectionInverted;
+  bool useCorrectionLUT;
+
+  bool calibrationRequested;
+  bool isCalibrating;
+  bool velocityReset;
+  int completedRevolutions;
+
+  int64_t sectorIntervals[PULSES_PER_REV][MAX_CALIBRATION_REVS];
+  float sectorCorrection[PULSES_PER_REV][2];
+};
+
+// ---------------- Encoder Class ----------------
 
 class Encoder {
 public:
-  encoder_state_t state_;
-
   Encoder(gpio_num_t encoder_gpio, gpio_num_t sector_gpio);
 
   void begin();
-  bool isCalibrating() const { return state_.calibrating; }
-  void requestCalibration() { state_.calibration_requested = true; }
-  void setDirectionInverted(bool inverted) {
-    if (state_.direction_inverted != inverted) {
-      int current = state_.current_sector;
-      state_.current_sector = (PULSES_PER_REV - current - 1) % PULSES_PER_REV;
-    }
-    state_.direction_inverted = inverted;
-  }
 
-  void isVelocityReseted(bool isMotorOff) {
-    state_.velocity_reseted = isMotorOff;
+  bool isCalibrating() const { return state_.isCalibrating; }
+  void requestCalibration() { state_.calibrationRequested = true; }
 
-    if (isMotorOff) {
-      state_.pulse_interval_us = 0;
-      state_.last_pulse_time_us = 0;
+  void invertDirection();
+  void setDirectionNormal();
 
-      if (encoder_unit_) {
-        pcnt_unit_stop(encoder_unit_);
-        pcnt_unit_clear_count(encoder_unit_);
-        pcnt_unit_start(encoder_unit_);
-      }
-    }
-  }
+  void resetVelocity();
+  void enableVelocityTracking();
 
   float computeRadPerSec();
   float computeRPM();
 
+  EncoderRuntimeState &state();
+  const EncoderRuntimeState &state() const;
+
 private:
   gpio_num_t encoder_gpio_;
   gpio_num_t sector_gpio_;
+
   pcnt_unit_handle_t encoder_unit_;
   pcnt_unit_handle_t sector_unit_;
 
+  EncoderRuntimeState state_{};
+
+  // ---- PCNT setup ----
   void configurePCNTUnit(pcnt_unit_handle_t *unit);
   void configurePCNTChannel(pcnt_unit_handle_t unit, gpio_num_t gpio);
   void configureGlitchFilter(pcnt_unit_handle_t unit);
   void startPCNT(pcnt_unit_handle_t unit);
+
   void setupEncoderPCNT();
   void setupSectorPCNT();
 
+  // ---- ISR callbacks ----
   static bool IRAM_ATTR onEncoderPulse(pcnt_unit_handle_t unit,
                                        const pcnt_watch_event_data_t *edata,
                                        void *user_ctx);
+
   static bool IRAM_ATTR onSectorReset(pcnt_unit_handle_t unit,
                                       const pcnt_watch_event_data_t *edata,
                                       void *user_ctx);
 
-  static portMUX_TYPE encoder_mux; // mutex for ISR and tasks
+  // ---- ISR helpers ----
+  static inline void updatePulseTiming(EncoderRuntimeState *state, int64_t now);
+
+  static inline void advanceSector(EncoderRuntimeState *state);
+
+  // ---- Math helpers ----
+  float computeAngularVelocity(float scaleFactor);
+  float applySectorCorrection(int sector, int64_t intervalUs) const;
+  int previousSector() const;
+
+  void remapCurrentSector();
+
+  static portMUX_TYPE encoder_mux;
 };

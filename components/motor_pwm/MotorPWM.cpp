@@ -1,48 +1,27 @@
 #include "MotorPWM.h"
-#include "esp_log.h"
 #include <cmath>
 
-MotorPWM::MotorPWM(gpio_num_t in1_pin, gpio_num_t in2_pin,
-                   ledc_channel_t channel1, ledc_channel_t channel2,
-                   ledc_timer_t timer, ledc_mode_t mode, uint32_t freq_hz,
-                   uint8_t resolution_bits)
-    : in1_pin_(in1_pin), in2_pin_(in2_pin), channel1_(channel1),
-      channel2_(channel2), timer_(timer), mode_(mode), freq_hz_(freq_hz),
-      resolution_bits_(resolution_bits) {}
+// ---------------- Constructor ----------------
+
+MotorPWM::MotorPWM(gpio_num_t in1Pin, gpio_num_t in2Pin,
+                   ledc_channel_t forwardChannel, ledc_channel_t reverseChannel,
+                   ledc_timer_t timer, ledc_mode_t mode, uint32_t frequencyHz,
+                   uint8_t resolutionBits)
+    : in1Pin_(in1Pin), in2Pin_(in2Pin), forwardChannel_(forwardChannel),
+      reverseChannel_(reverseChannel), timer_(timer), mode_(mode),
+      frequencyHz_(frequencyHz), resolutionBits_(resolutionBits) {}
+
+// ---------------- Initialization ----------------
 
 void MotorPWM::begin() {
   configureTimer();
-  configureChannel(channel1_, in1_pin_);
-  configureChannel(channel2_, in2_pin_);
+  configureChannel(forwardChannel_, in1Pin_);
+  configureChannel(reverseChannel_, in2Pin_);
 
-  // Stop motor initially
-  ledc_set_duty(mode_, channel1_, 0);
-  ledc_update_duty(mode_, channel1_);
-  ledc_set_duty(mode_, channel2_, 0);
-  ledc_update_duty(mode_, channel2_);
+  stopMotor();
 }
 
-void MotorPWM::configureTimer() {
-  ledc_timer_config_t timer_conf = {};
-  timer_conf.speed_mode = mode_;
-  timer_conf.duty_resolution = static_cast<ledc_timer_bit_t>(resolution_bits_);
-  timer_conf.timer_num = timer_;
-  timer_conf.freq_hz = freq_hz_;
-  timer_conf.clk_cfg = LEDC_AUTO_CLK;
-
-  ESP_ERROR_CHECK(ledc_timer_config(&timer_conf));
-}
-
-void MotorPWM::configureChannel(ledc_channel_t channel, gpio_num_t pin) {
-  ledc_channel_config_t ch_conf = {};
-  ch_conf.channel = channel;
-  ch_conf.duty = 0;
-  ch_conf.gpio_num = pin;
-  ch_conf.speed_mode = mode_;
-  ch_conf.hpoint = 0;
-  ch_conf.timer_sel = timer_;
-  ESP_ERROR_CHECK(ledc_channel_config(&ch_conf));
-}
+// ---------------- Public Control ----------------
 
 void MotorPWM::setDuty(float duty) {
   if (duty > 1.0f)
@@ -51,21 +30,77 @@ void MotorPWM::setDuty(float duty) {
     duty = -1.0f;
 
   duty_ = duty;
-  motor_stoped_ = duty == 0;
-  direction_inverted_ = duty < 0;
+  isStopped_ = (duty == 0.0f);
+  isDirectionInverted_ = (duty < 0.0f);
 
-  uint32_t max_duty = (1 << resolution_bits_) - 1;
-  uint32_t scaled_duty = static_cast<uint32_t>(max_duty * fabs(duty));
-
-  if (duty >= 0) {
-    ledc_set_duty(mode_, channel1_, scaled_duty);
-    ledc_update_duty(mode_, channel1_);
-    ledc_set_duty(mode_, channel2_, 0);
-    ledc_update_duty(mode_, channel2_);
-  } else {
-    ledc_set_duty(mode_, channel1_, 0);
-    ledc_update_duty(mode_, channel1_);
-    ledc_set_duty(mode_, channel2_, scaled_duty);
-    ledc_update_duty(mode_, channel2_);
+  if (isStopped_) {
+    stopMotor();
+    return;
   }
+
+  const uint32_t scaledDuty = scaleDuty(duty);
+
+  if (duty > 0.0f) {
+    applyForwardDuty(scaledDuty);
+  } else {
+    applyReverseDuty(scaledDuty);
+  }
+}
+
+// ---------------- Setup Helpers ----------------
+
+void MotorPWM::configureTimer() {
+  ledc_timer_config_t timerConf{};
+  timerConf.speed_mode = mode_;
+  timerConf.duty_resolution = static_cast<ledc_timer_bit_t>(resolutionBits_);
+  timerConf.timer_num = timer_;
+  timerConf.freq_hz = frequencyHz_;
+  timerConf.clk_cfg = LEDC_AUTO_CLK;
+
+  ESP_ERROR_CHECK(ledc_timer_config(&timerConf));
+}
+
+void MotorPWM::configureChannel(ledc_channel_t channel, gpio_num_t pin) {
+  ledc_channel_config_t channelConf{};
+  channelConf.channel = channel;
+  channelConf.duty = 0;
+  channelConf.gpio_num = pin;
+  channelConf.speed_mode = mode_;
+  channelConf.hpoint = 0;
+  channelConf.timer_sel = timer_;
+
+  ESP_ERROR_CHECK(ledc_channel_config(&channelConf));
+}
+
+// ---------------- Control Helpers ----------------
+
+void MotorPWM::applyForwardDuty(uint32_t duty) {
+  ledc_set_duty(mode_, forwardChannel_, duty);
+  ledc_update_duty(mode_, forwardChannel_);
+
+  ledc_set_duty(mode_, reverseChannel_, 0);
+  ledc_update_duty(mode_, reverseChannel_);
+}
+
+void MotorPWM::applyReverseDuty(uint32_t duty) {
+  ledc_set_duty(mode_, forwardChannel_, 0);
+  ledc_update_duty(mode_, forwardChannel_);
+
+  ledc_set_duty(mode_, reverseChannel_, duty);
+  ledc_update_duty(mode_, reverseChannel_);
+}
+
+void MotorPWM::stopMotor() {
+  ledc_set_duty(mode_, forwardChannel_, 0);
+  ledc_update_duty(mode_, forwardChannel_);
+
+  ledc_set_duty(mode_, reverseChannel_, 0);
+  ledc_update_duty(mode_, reverseChannel_);
+}
+
+// ---------------- Math Helpers ----------------
+
+uint32_t MotorPWM::scaleDuty(float duty) const {
+  const uint32_t maxDuty = (1U << resolutionBits_) - 1;
+  return static_cast<uint32_t>(maxDuty * std::fabs(duty));
 }

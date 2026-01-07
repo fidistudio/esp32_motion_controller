@@ -1,16 +1,19 @@
 #include "Encoder.h"
 #include "LUTCorrection.h"
 #include "MotorPWM.h"
+
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/projdefs.h"
 #include "freertos/task.h"
+
 #include <cstdint>
-#include <string.h>
+#include <cstring>
 
 #define TAG "HALL_ENCODER"
+
+// ---------------- Hardware ----------------
 
 #define ENCODER_GPIO GPIO_NUM_23
 #define SECTOR_GPIO GPIO_NUM_22
@@ -18,256 +21,306 @@
 #define MOTOR1_IN1_PIN GPIO_NUM_25
 #define MOTOR1_IN2_PIN GPIO_NUM_26
 
+// ---------------- UART ----------------
+
 #define UART_PORT_NUM UART_NUM_0
 #define UART_RX_BUF_SIZE 128
 #define POLL_INTERVAL_MS 200
 
-volatile bool step_logging = false;
-volatile bool ramp_logging = false;
+// ---------------- Globals ----------------
+
+static volatile bool stepLogging = false;
+static volatile bool rampLogging = false;
 
 // ---------------- Global Objects ----------------
-Encoder encoder(ENCODER_GPIO, SECTOR_GPIO);
-LUTCorrection lut(&encoder.state_, "encoder_left");
-MotorPWM motor1(MOTOR1_IN1_PIN, MOTOR1_IN2_PIN, LEDC_CHANNEL_0, LEDC_CHANNEL_1);
-// ---------------- UART Command Parser ----------------
 
-static void trim_newline(char *str) {
-  char *p = str;
-  while (*p) {
-    if (*p == '\r' || *p == '\n')
+static Encoder encoder(ENCODER_GPIO, SECTOR_GPIO);
+static LUTCorrection lut(&encoder.state(), "encoder_left");
+static MotorPWM motor(MOTOR1_IN1_PIN, MOTOR1_IN2_PIN, LEDC_CHANNEL_0,
+                      LEDC_CHANNEL_1);
+
+// ------------------------------------------------
+// UART helpers
+// ------------------------------------------------
+
+static void trimNewline(char *str) {
+  for (char *p = str; *p; ++p) {
+    if (*p == '\r' || *p == '\n') {
       *p = '\0';
-    p++;
+      return;
+    }
   }
 }
 
-static void handle_command(char *cmd) {
+static void handleCommand(char *cmd) {
+
   if (strncmp(cmd, "invert", 6) == 0) {
     char *arg = cmd + 7;
-    encoder.setDirectionInverted(strcmp(arg, "true") == 0);
-    ESP_LOGI(TAG, "Direction inverted: %s",
-             encoder.state_.direction_inverted ? "TRUE" : "FALSE");
-    lut.loadLUT();
 
-  } else if (strncmp(cmd, "cal", 3) == 0) {
+    if (strcmp(arg, "true") == 0) {
+      encoder.invertDirection();
+    } else {
+      encoder.setDirectionNormal();
+    }
+
+    lut.load();
+    ESP_LOGI(TAG, "Direction inverted: %s",
+             encoder.state().isDirectionInverted ? "TRUE" : "FALSE");
+  }
+
+  else if (strncmp(cmd, "cal", 3) == 0) {
     ESP_LOGI(TAG, "Waiting for sector zero to start calibration...");
     encoder.requestCalibration();
+  }
 
-  } else if (strncmp(cmd, "lut", 3) == 0) {
+  else if (strncmp(cmd, "lut", 3) == 0) {
     char *arg = cmd + 4;
-    encoder.state_.use_lut_correction = (strcmp(arg, "true") == 0);
+    encoder.state().useCorrectionLUT = (strcmp(arg, "true") == 0);
+
     ESP_LOGI(TAG, "LUT correction: %s",
-             encoder.state_.use_lut_correction ? "ENABLED" : "DISABLED");
+             encoder.state().useCorrectionLUT ? "ENABLED" : "DISABLED");
+  }
 
-  } else if (strncmp(cmd, "motor1", 6) == 0) {
-    float value = 0.0f;
-    if (sscanf(cmd + 7, "%f", &value) == 1) {
-      motor1.setDuty(value);
-      encoder.setDirectionInverted(motor1.isDirectionInverted());
-      encoder.isVelocityReseted(motor1.isMotorOff());
+  else if (strncmp(cmd, "motor1", 6) == 0) {
+    float duty = 0.0f;
+    if (sscanf(cmd + 7, "%f", &duty) == 1) {
 
-      ESP_LOGI(TAG, "Motor duty: %.2f", value);
+      motor.setDuty(duty);
+
+      if (motor.isStopped()) {
+        encoder.resetVelocity();
+      } else {
+        encoder.enableVelocityTracking();
+      }
+
+      if (motor.isDirectionInverted()) {
+        encoder.invertDirection();
+      } else {
+        encoder.setDirectionNormal();
+      }
+
+      ESP_LOGI(TAG, "Motor duty: %.2f", duty);
     } else {
       ESP_LOGW(TAG, "Invalid motor1 command: %s", cmd);
     }
+  }
 
-  } else if (strncmp(cmd, "print", 5) == 0) {
+  else if (strncmp(cmd, "print", 5) == 0) {
     ESP_LOGI(TAG, "Printing LUT...");
-    lut.printLUT();
+    lut.print();
+  }
 
-  } else if (strncmp(cmd, "step", 4) == 0) {
-    step_logging = true;
-    ESP_LOGW(TAG, "Prueba STEP iniciada");
+  else if (strncmp(cmd, "step", 4) == 0) {
+    stepLogging = true;
+    ESP_LOGW(TAG, "STEP test started");
+  }
 
-  } else if (strncmp(cmd, "ramp", 4) == 0) {
-    ramp_logging = true;
-    ESP_LOGW(TAG, "Prueba RAMP iniciada");
+  else if (strncmp(cmd, "ramp", 4) == 0) {
+    rampLogging = true;
+    ESP_LOGW(TAG, "RAMP test started");
+  }
 
-  } else {
+  else {
     ESP_LOGW(TAG, "Unknown command: %s", cmd);
   }
 }
 
-static void uart_command_task(void *pvParameter) {
+static void uartCommandTask(void *) {
   uint8_t data[UART_RX_BUF_SIZE];
+
   while (true) {
     int len = uart_read_bytes(UART_PORT_NUM, data, sizeof(data) - 1,
                               pdMS_TO_TICKS(50));
+
     if (len > 0) {
       data[len] = '\0';
-      trim_newline((char *)data);
-      handle_command((char *)data);
+      trimNewline(reinterpret_cast<char *>(data));
+      handleCommand(reinterpret_cast<char *>(data));
     }
   }
 }
 
-// ---------------- Encoder Task ----------------
+// ------------------------------------------------
+// Encoder / Test Task
+// ------------------------------------------------
 
-static void encoder_task(void *pvParameter) {
+static void encoderTask(void *) {
+
   while (true) {
+
+    // -------- Calibration --------
     if (encoder.isCalibrating()) {
-      // Check revolutions
-      int rev = encoder.state_.revolutions;
-      if (rev >= MAX_CALIBRATION_REVS) {
+
+      if (encoder.state().completedRevolutions >= MAX_CALIBRATION_REVS) {
+
         ESP_LOGI(TAG, "Calibration complete. Calculating LUT...");
-        // Compute robust mean and store LUT
-        float global_mean = 0.0f;
-        int dir_idx = encoder.state_.direction_inverted ? 1 : 0;
+
+        float globalMean = 0.0f;
+        const int dir = encoder.state().isDirectionInverted ? 1 : 0;
 
         for (int i = 0; i < PULSES_PER_REV; i++) {
-          int64_t *samples = encoder.state_.sector_time[i];
+          int64_t *samples = encoder.state().sectorIntervals[i];
+
           int count = 0;
-          int64_t sum = 0, min_val = INT64_MAX, max_val = 0;
+          int64_t sum = 0;
+          int64_t minVal = INT64_MAX;
+          int64_t maxVal = 0;
+
           for (int j = 0; j < MAX_CALIBRATION_REVS; j++) {
-            int64_t v = samples[j];
+            const int64_t v = samples[j];
             if (v == 0)
               continue;
-            if (v < min_val)
-              min_val = v;
-            if (v > max_val)
-              max_val = v;
+
+            minVal = (v < minVal) ? v : minVal;
+            maxVal = (v > maxVal) ? v : maxVal;
             sum += v;
             count++;
           }
-          if (count > 2)
-            sum -= (min_val + max_val);
-          float mean =
-              (count > 2) ? ((float)sum / (float)(count - 2)) : ((float)sum);
-          encoder.state_.sector_correction_factor[i][dir_idx] = mean;
-          global_mean += mean;
+
+          if (count > 2) {
+            sum -= (minVal + maxVal);
+            count -= 2;
+          }
+
+          const float mean = (count > 0) ? (float)sum / (float)count : 0.0f;
+
+          encoder.state().sectorCorrection[i][dir] = mean;
+          globalMean += mean;
         }
-        global_mean /= PULSES_PER_REV;
+
+        globalMean /= PULSES_PER_REV;
+
         for (int i = 0; i < PULSES_PER_REV; i++) {
-          encoder.state_.sector_correction_factor[i][dir_idx] =
-              100.0f * (encoder.state_.sector_correction_factor[i][dir_idx] /
-                        global_mean);
+          encoder.state().sectorCorrection[i][dir] =
+              100.0f * (encoder.state().sectorCorrection[i][dir] / globalMean);
         }
 
-        ESP_LOGI(TAG, "Calibration finished. Saving LUT...");
-        lut.saveLUT();
+        lut.save();
 
-        encoder.state_.calibrating = false;
-        encoder.state_.revolutions = 0;
+        encoder.state().isCalibrating = false;
+        encoder.state().completedRevolutions = 0;
+
+        ESP_LOGI(TAG, "Calibration finished and LUT saved");
       }
-    } else if (step_logging) {
+    }
 
-      const int64_t STEP_TOTAL_US = 5000000LL; // Duración total: 5 s en µs
-      const int64_t STEP_ZERO_US = 1000000LL;  // 1 s en µs con duty = 0
+    // -------- STEP test --------
+    else if (stepLogging) {
+
+      const int64_t TOTAL_US = 5'000'000;
+      const int64_t ZERO_US = 1'000'000;
       const int64_t t0 = esp_timer_get_time();
 
-      motor1.setDuty(0.0f);
-      float last_set_duty = 0.0f;
+      motor.setDuty(0.0f);
+      encoder.resetVelocity();
 
       printf("# BEGIN_STEP\n");
       printf("# t_ms, duty, vel_rad_s\n");
 
-      while ((esp_timer_get_time() - t0) < STEP_TOTAL_US) {
-        int64_t elapsed = esp_timer_get_time() - t0; // µs
-        float duty = (elapsed < STEP_ZERO_US) ? 0.0f : 1.0f;
+      float lastDuty = 0.0f;
 
-        if (duty != last_set_duty) {
-          encoder.state_.velocity_reseted = false;
-          motor1.setDuty(duty);
-          last_set_duty = duty;
+      while ((esp_timer_get_time() - t0) < TOTAL_US) {
+        const int64_t elapsed = esp_timer_get_time() - t0;
+        const float duty = (elapsed < ZERO_US) ? 0.0f : 1.0f;
+
+        if (duty != lastDuty) {
+          motor.setDuty(duty);
+          encoder.enableVelocityTracking();
+          lastDuty = duty;
         }
 
-        float vel = encoder.computeRadPerSec();
+        printf("%lld, %.3f, %.4f\n", (long long)(elapsed / 1000), duty,
+               encoder.computeRadPerSec());
 
-        int64_t elapsed_ms = elapsed / 1000LL;
-        printf("%lld, %.3f, %.4f\n", (long long)elapsed_ms, duty, vel);
-
-        vTaskDelay(pdMS_TO_TICKS(10)); // resolución 10 ms
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
 
       printf("END_STEP\n");
-      // Apagar motor y restaurar estado
-      motor1.setDuty(0.0f);
-      step_logging = false;
-      encoder.state_.velocity_reseted = true;
-      ESP_LOGW(TAG, "STEP FINALIZADO. Logging normal reactivado.");
 
-    } else if (ramp_logging) {
+      motor.setDuty(0.0f);
+      encoder.resetVelocity();
+      stepLogging = false;
+    }
 
-      const int64_t RAMP_TOTAL_US = 5000000LL; // 5 s en µs
+    // -------- RAMP test --------
+    else if (rampLogging) {
+
+      const int64_t TOTAL_US = 5'000'000;
       const int64_t t0 = esp_timer_get_time();
 
-      motor1.setDuty(0.0f);
-      float last_set_duty = 0.0f;
+      motor.setDuty(0.0f);
+      encoder.resetVelocity();
 
       printf("# BEGIN_RAMP\n");
       printf("# t_ms, duty, vel_rad_s\n");
 
-      while ((esp_timer_get_time() - t0) < RAMP_TOTAL_US) {
-        int64_t elapsed = esp_timer_get_time() - t0; // µs
+      float lastDuty = 0.0f;
 
-        // duty lineal de 0 a 1 en 5s
-        float duty = (float)elapsed / (float)RAMP_TOTAL_US;
+      while ((esp_timer_get_time() - t0) < TOTAL_US) {
+        const int64_t elapsed = esp_timer_get_time() - t0;
+        float duty = (float)elapsed / (float)TOTAL_US;
         if (duty > 1.0f)
           duty = 1.0f;
 
-        if (duty != last_set_duty) {
-          encoder.state_.velocity_reseted = false;
-          motor1.setDuty(duty);
-          last_set_duty = duty;
+        if (duty != lastDuty) {
+          motor.setDuty(duty);
+          encoder.enableVelocityTracking();
+          lastDuty = duty;
         }
 
-        float vel = encoder.computeRadPerSec();
-        int64_t elapsed_ms = elapsed / 1000LL;
+        printf("%lld, %.3f, %.4f\n", (long long)(elapsed / 1000), duty,
+               encoder.computeRadPerSec());
 
-        printf("%lld, %.3f, %.4f\n", (long long)elapsed_ms, duty, vel);
-
-        vTaskDelay(pdMS_TO_TICKS(10)); // resolución 10 ms
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
 
       printf("END_RAMP\n");
 
-      motor1.setDuty(0.0f);
-      ramp_logging = false;
-      encoder.state_.velocity_reseted = true;
-      ESP_LOGW(TAG, "RAMPA FINALIZADA. Logging normal reactivado.");
-    } else {
+      motor.setDuty(0.0f);
+      encoder.resetVelocity();
+      rampLogging = false;
+    }
 
-      float omega = encoder.computeRadPerSec();
-      float rpm = encoder.computeRPM();
+    // -------- Normal logging --------
+    else {
       ESP_LOGI(TAG,
                "Sector:%02d | Interval:%lld µs | ω=%.2f rad/s | %.2f RPM | "
                "Dir:%s | LUT:%s",
-               encoder.state_.current_sector, encoder.state_.pulse_interval_us,
-               omega, rpm, encoder.state_.direction_inverted ? "INV" : "NORM",
-               encoder.state_.use_lut_correction ? "ON" : "OFF");
+               encoder.state().currentSector, encoder.state().pulseIntervalUs,
+               encoder.computeRadPerSec(), encoder.computeRPM(),
+               encoder.state().isDirectionInverted ? "INV" : "NORM",
+               encoder.state().useCorrectionLUT ? "ON" : "OFF");
     }
+
     vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
   }
 }
 
-// ---------------- Entry Point ----------------
+// ------------------------------------------------
+// app_main
+// ------------------------------------------------
 
 extern "C" void app_main() {
-  // Initialize NVS
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-      ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(ret);
 
-  // UART setup
-  const uart_config_t uart_config = {
+  ESP_ERROR_CHECK(nvs_flash_init());
+
+  const uart_config_t uartConfig = {
       .baud_rate = 115200,
       .data_bits = UART_DATA_8_BITS,
       .parity = UART_PARITY_DISABLE,
       .stop_bits = UART_STOP_BITS_1,
       .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
   };
-  uart_driver_install(UART_PORT_NUM, UART_RX_BUF_SIZE * 2, 0, 0, NULL, 0);
-  uart_param_config(UART_PORT_NUM, &uart_config);
 
-  // Initialize encoder and load LUT
+  uart_driver_install(UART_PORT_NUM, UART_RX_BUF_SIZE * 2, 0, 0, nullptr, 0);
+
+  uart_param_config(UART_PORT_NUM, &uartConfig);
+
   encoder.begin();
-  lut.loadLUT();
-  motor1.begin();
+  lut.load();
+  motor.begin();
 
-  // Create tasks
-  xTaskCreate(uart_command_task, "uart_command_task", 4096, NULL, 4, NULL);
-  xTaskCreate(encoder_task, "encoder_task", 4096, NULL, 5, NULL);
+  xTaskCreate(uartCommandTask, "uart_command_task", 4096, nullptr, 4, nullptr);
+
+  xTaskCreate(encoderTask, "encoder_task", 4096, nullptr, 5, nullptr);
 }

@@ -1,8 +1,6 @@
 #pragma once
 
 #include "Encoder.h"
-#include <stdbool.h>
-#include <stdint.h>
 #include <string>
 
 extern "C" {
@@ -12,17 +10,25 @@ extern "C" {
 #include "nvs_flash.h"
 }
 
+// ------------------------------------------------
+// LUTCorrection
+// Responsible only for persistence of LUT data
+// ------------------------------------------------
+
 class LUTCorrection {
 public:
-  LUTCorrection(encoder_state_t *encoder_state,
-                const std::string &nvs_namespace);
+  LUTCorrection(EncoderRuntimeState *encoderState,
+                const std::string &nvsNamespace);
 
-  void saveLUT();
-  void loadLUT();
-  void printLUT();
+  void save();
+  void load();
+  void print() const;
 
 private:
-  encoder_state_t *state_;
-  std::string nvs_namespace_;
-  const char *TAG = "LUTCorrection";
+  EncoderRuntimeState *state_;
+  std::string nvsNamespace_;
+
+  static constexpr const char *TAG = "LUTCorrection";
+
+  bool openNVS(nvs_handle_t &handle, nvs_open_mode mode) const;
 };
