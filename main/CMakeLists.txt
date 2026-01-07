@@ -1,5 +1,5 @@
-idf_component_register(SRCS "HallEncoder.cpp"
-                            "Encoder.cpp"
-                            "LUTCorrection.cpp" 
-                            "MotorPWM.cpp"
-                    INCLUDE_DIRS ".")
+idf_component_register(
+    SRCS "main.cpp"
+    INCLUDE_DIRS "."
+    REQUIRES lut_correction motor_pwm pid driver
+)
