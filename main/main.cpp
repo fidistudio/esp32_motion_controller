@@ -1,6 +1,7 @@
 #include "Encoder.h"
 #include "LUTCorrection.h"
 #include "MotorPWM.h"
+#include "hardware_config.h"
 
 #include "driver/uart.h"
 #include "esp_log.h"
@@ -11,15 +12,7 @@
 #include <cstdint>
 #include <cstring>
 
-#define TAG "HALL_ENCODER"
-
-// ---------------- Hardware ----------------
-
-#define ENCODER_GPIO GPIO_NUM_23
-#define SECTOR_GPIO GPIO_NUM_22
-
-#define MOTOR1_IN1_PIN GPIO_NUM_25
-#define MOTOR1_IN2_PIN GPIO_NUM_26
+#define TAG "MAIN"
 
 // ---------------- UART ----------------
 
@@ -36,8 +29,7 @@ static volatile bool rampLogging = false;
 
 static Encoder encoder(ENCODER_GPIO, SECTOR_GPIO);
 static LUTCorrection lut(&encoder.state(), "encoder_left");
-static MotorPWM motor(MOTOR1_IN1_PIN, MOTOR1_IN2_PIN, LEDC_CHANNEL_0,
-                      LEDC_CHANNEL_1);
+static MotorPWM motor(MOTOR1_IN1_PIN, MOTOR1_IN2_PIN, MOTOR1_CH_A, MOTOR1_CH_B);
 
 // ------------------------------------------------
 // UART helpers
