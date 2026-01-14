@@ -1,7 +1,7 @@
 #include "VelocityProfile.h"
 #include <cmath>
 
-VelocityProfile::VelocityProfile(float V_max, float W_max, float accel_max, float alpha_max, float radius_R, float radius_L, float b, float Ts = 0.01f) : v_max_(V_max), w_max_(W_max), accel_max_(accel_max), alpha_max_(alpha_max), radius_R_(radius_R), radius_L_(radius_L), b_(b), Ts_(Ts) {}
+VelocityProfile::VelocityProfile(float V_max, float W_max, float accel_max, float alpha_max, float radius_R, float radius_L, float b, float Ts) : v_max_(V_max), w_max_(W_max), accel_max_(accel_max), alpha_max_(alpha_max), radius_R_(radius_R), radius_L_(radius_L), b_(b), Ts_(Ts) {}
 
 void VelocityProfile::updateMotionParameters(float x, float y, profile_method_t method)
 {
