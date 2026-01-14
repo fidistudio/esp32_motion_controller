@@ -1,5 +1,6 @@
 #include "VelocityProfile.h"
 #include <cmath>
+#include <iostream>
 
 VelocityProfile::VelocityProfile(float V_max, float W_max, float accel_max, float alpha_max, float radius_R, float radius_L, float b, float Ts) : v_max_(V_max), w_max_(W_max), accel_max_(accel_max), alpha_max_(alpha_max), radius_R_(radius_R), radius_L_(radius_L), b_(b), Ts_(Ts) {}
 
@@ -8,7 +9,8 @@ void VelocityProfile::updateMotionParameters(float x, float y, profile_method_t 
     d_ = std::sqrt(x * x + y * y);
     theta_ = std::atan2(y, x);
     t_ = 0.0f;
-    if (method == profile_method_t::SLOPE_LIMITED)// Método de pendiente limitada
+    method_ = method;
+    if (method_ == profile_method_t::SLOPE_LIMITED) // Método de pendiente limitada
     {
         tf_v_ = (3 * d_) / (2 * v_max_);
         if (3 * v_max_ / tf_v_ > accel_max_)
@@ -28,35 +30,34 @@ void VelocityProfile::updateMotionParameters(float x, float y, profile_method_t 
         else
             profile_w_ = profile_type_t::TRAPEZOIDAL_PROFILE;
     }
-    else// Método de pendiente fija
+    else // Método de pendiente fija
     {
         if (d_ > v_max_ * v_max_ / accel_max_)
-        {
-            profile_v_ = profile_type_t::TRIANGULAR_PROFILE;
-            tf_v_ = 2 * std::sqrt(d_ / accel_max_);
-        }
-        else
         {
             profile_v_ = profile_type_t::TRAPEZOIDAL_PROFILE;
             tf_v_ = (d_ / v_max_) + (v_max_ / accel_max_);
         }
+        else
+        {
+            profile_v_ = profile_type_t::TRIANGULAR_PROFILE;
+            tf_v_ = 2 * std::sqrt(d_ / accel_max_);
+        }
 
         if (theta_ > w_max_ * w_max_ / alpha_max_)
         {
-            profile_w_ = profile_type_t::TRIANGULAR_PROFILE;
-            tf_w_ = 2 * std::sqrt(theta_ / alpha_max_);
+            profile_w_ = profile_type_t::TRAPEZOIDAL_PROFILE;
+            tf_w_ = (theta_ / w_max_) + (w_max_ / alpha_max_);
         }
         else
         {
-            profile_w_ = profile_type_t::TRAPEZOIDAL_PROFILE;
-            tf_w_ = (theta_ / w_max_) + (w_max_ / alpha_max_);
+            profile_w_ = profile_type_t::TRIANGULAR_PROFILE;
+            tf_w_ = 2 * std::sqrt(theta_ / alpha_max_);
         }
     }
 }
 
 void VelocityProfile::step(float &wR_, float &wL_)
 {
-    t_ += Ts_;
     if (t_ < tf_w_)
     {
         if (method_ == profile_method_t::SLOPE_LIMITED)
@@ -64,6 +65,7 @@ void VelocityProfile::step(float &wR_, float &wL_)
 
         else
             w_ = generate_constant_accel_time_profile(velocity_type_t::ANGULAR, theta_, w_max_, alpha_max_);
+
         wR_ = (b_ * w_) / radius_R_;
         wL_ = -(b_ * w_) / radius_L_;
     }
@@ -73,6 +75,7 @@ void VelocityProfile::step(float &wR_, float &wL_)
             v_ = generate_slope_limited_profile(velocity_type_t::LINEAR, tf_v_, v_max_);
         else
             v_ = generate_constant_accel_time_profile(velocity_type_t::LINEAR, d_, v_max_, accel_max_);
+
         wR_ = v_ / radius_R_;
         wL_ = v_ / radius_L_;
     }
@@ -81,6 +84,7 @@ void VelocityProfile::step(float &wR_, float &wL_)
         wR_ = 0.0f;
         wL_ = 0.0f;
     }
+    t_ += Ts_;
 }
 
 void VelocityProfile::changeVelMax(float v_max, float w_max)
@@ -91,8 +95,8 @@ void VelocityProfile::changeVelMax(float v_max, float w_max)
 
 float VelocityProfile::generate_slope_limited_profile(velocity_type_t type, float tf, float vel_max)
 {
-    int t;
-    int v;
+    float t;
+    float v;
     if (type == velocity_type_t::ANGULAR)
     {
         v = copysign(1, theta_);
@@ -124,8 +128,8 @@ float VelocityProfile::generate_slope_limited_profile(velocity_type_t type, floa
 
 float VelocityProfile::generate_constant_accel_time_profile(velocity_type_t type, float dist, float vel_max, float acc_max)
 {
-    int t;
-    int v;
+    float t;
+    float v;
     if (type == velocity_type_t::ANGULAR)
     {
         v = copysign(1, theta_);
