@@ -1,6 +1,8 @@
-#include "uart_echo.h"
+#include "timer_task.h"
+#include "timer_hw.h"
 
 extern "C" void app_main(void)
 {
-    uart_echo_init();
+    TaskHandle_t task = timer_task_start();
+    timer_hw_init(task);
 }
