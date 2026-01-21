@@ -6,14 +6,19 @@
 #include "esp_log.h"
 
 #define UART_PORT UART_NUM_0
-#define UART_BUF_SIZE 256
+#define UART_RX_BUF_SIZE 256
+#define LINE_BUF_SIZE 128
 
 static const char *TAG = "UART_ECHO";
 
 /* --- Task privada --- */
 static void uart_echo_task(void *arg)
 {
-    uint8_t data[UART_BUF_SIZE];
+    uint8_t rx_buf[UART_RX_BUF_SIZE];
+    char line_buf[LINE_BUF_SIZE];
+    int line_idx = 0;
+
+    bool line_overflow = false;
 
     ESP_LOGI(TAG, "UART echo task started");
 
@@ -21,16 +26,36 @@ static void uart_echo_task(void *arg)
     {
         int len = uart_read_bytes(
             UART_PORT,
-            data,
-            UART_BUF_SIZE - 1,
+            rx_buf,
+            sizeof(rx_buf),
             pdMS_TO_TICKS(100));
 
-        if (len > 0)
+        for (int i = 0; i < len; i++)
         {
-            data[len] = '\0';
-            ESP_LOGI(TAG, "Recibido: %.*s", len, data);
-            uart_write_bytes(UART_PORT, (const char *)data, len);
-            uart_write_bytes(UART_PORT, "\r\n", 2);
+            char c = (char)rx_buf[i];
+            if (c == '\n' || c == '\r')
+            {
+                if (line_overflow)
+                    ESP_LOGW(TAG, "Linea descartada: buffer lleno");
+                else if (line_idx > 0)
+                {
+                    line_buf[line_idx] = '\0';
+
+                    ESP_LOGI(TAG, "Linea recibida: %s", line_buf);
+                    uart_write_bytes(UART_PORT, line_buf, line_idx);
+                    uart_write_bytes(UART_PORT, "\r\n", 2);
+                }
+                line_idx = 0;
+                line_overflow = false;
+                continue;
+            }
+            if (!line_overflow)
+            {
+                if (line_idx < LINE_BUF_SIZE - 1)
+                    line_buf[line_idx++] = c;
+                else
+                    line_overflow = true;
+            }
         }
     }
 }
@@ -46,7 +71,7 @@ void uart_echo_init(void)
     uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
     uart_config.source_clk = UART_SCLK_APB;
 
-    uart_driver_install(UART_PORT, UART_BUF_SIZE * 2, 0, 0, NULL, 0);
+    uart_driver_install(UART_PORT, UART_RX_BUF_SIZE * 2, 0, 0, NULL, 0);
     uart_param_config(UART_PORT, &uart_config);
     uart_set_pin(UART_PORT,
                  UART_PIN_NO_CHANGE,
