@@ -34,6 +34,22 @@ static bool IRAM_ATTR timer_callback(
     return xHigherPriorityTaskWoken == pdTRUE;
 }
 
+/* ================= START / STOP ================= */
+
+void timer_hw_start(void)
+{
+    if (gptimer)
+        gptimer_start(gptimer);
+}
+
+void timer_hw_stop(void)
+{
+    if (gptimer)
+        gptimer_stop(gptimer);
+}
+
+
+
 /* ================= INIT ================= */
 
 void timer_hw_init(TaskHandle_t task_to_notify)

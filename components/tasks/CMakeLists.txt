@@ -2,9 +2,11 @@ idf_component_register(
     SRCS
         "timer_task.cpp"
         "timer_hw.cpp"
+        "uart_deco.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES
         esp_driver_uart
         esp_driver_gptimer
+        data
 )
