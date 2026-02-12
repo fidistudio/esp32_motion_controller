@@ -1,0 +1,17 @@
+idf_component_register(
+    SRCS
+        "EncoderPCNT/EncoderPCNT.cpp"
+        "MotorPWM/MotorPWM.cpp"
+        "WheelDriver/WheelDriver.cpp"
+        "LUTStore/LUTStore.cpp"
+    INCLUDE_DIRS
+        "."
+        "EncoderPCNT"
+        "MotorPWM"
+        "WheelDriver"
+        "LUTStore"
+    REQUIRES
+        driver
+        esp_timer
+        nvs_flash
+)

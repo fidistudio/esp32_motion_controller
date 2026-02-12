@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "UARTCommandTask/UARTCommandTask.cpp"
+        "ControlTask/ControlTask.cpp"
+        "TimerNotifyTask/TimerNotifyTask.cpp"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        esp_driver_uart
+        hw_drivers
+        data
+)

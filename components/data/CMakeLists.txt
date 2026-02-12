@@ -1,4 +1,11 @@
 idf_component_register(
-    SRCS "data.cpp"
-    INCLUDE_DIRS "."
+    SRCS
+        "data.cpp"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        hw_drivers
+        libraries
+        driver
+        nvs_flash
 )
