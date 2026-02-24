@@ -11,6 +11,9 @@ static gptimer_handle_t gptimer = NULL;
 /* Handle de la task que será notificada */
 static TaskHandle_t notified_task = NULL;
 
+/* Indicador del estado del timer */
+static bool timer_enabled;
+
 /* ================= ISR / CALLBACK ================= */
 
 static bool IRAM_ATTR timer_callback(
@@ -40,12 +43,19 @@ void timer_notify_start(void)
 {
     if (gptimer)
         gptimer_start(gptimer);
+    timer_enabled = true;
 }
 
 void timer_notify_stop(void)
 {
     if (gptimer)
         gptimer_stop(gptimer);
+    timer_enabled = false;
+}
+
+bool is_timer_enabled(void)
+{
+    return timer_enabled;
 }
 
 /* ================= INIT ================= */
@@ -85,6 +95,7 @@ void timer_notify_init(TaskHandle_t task_to_notify)
             &cbs,
             (void *)notified_task));
 
-    /* 4. Habilitar y arrancar */
+    /* 4. Habilitar */
     ESP_ERROR_CHECK(gptimer_enable(gptimer));
+    timer_enabled = false;
 }

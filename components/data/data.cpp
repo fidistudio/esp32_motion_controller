@@ -53,10 +53,6 @@ static PIDTiming pid_timing = {
 
 static const std::string nvs_namespace = "wheel1";
 
-/* ================= Timer Interrupt ================= */
-
-static bool timer_enabled;
-
 /* ================= Instancias ================= */
 
 static WheelDriver *wheel1 = nullptr;
@@ -137,16 +133,4 @@ void printLUT(void)
     ESP_LOGI(TAG, "LUT1\tFORWARD\t\tREVERSE");
     for (int i = 0; i < NUM_SECTORS; i++)
         ESP_LOGI(TAG, "[%d]\t%f\t%f", i, lut1[i][0], lut1[i][1]);
-}
-
-/* ================= TimerNotify ================= */
-
-bool is_timer_enabled(void)
-{
-    return timer_enabled;
-}
-
-void set_timer_state(bool state)
-{
-    timer_enabled = state;
 }

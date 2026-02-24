@@ -92,7 +92,6 @@ static void UARTCommandTask(void *arg)
                         if (is_timer_enabled())
                         {
                             timer_notify_stop();
-                            set_timer_state(false);
                         }
                         vTaskDelay(15);
                         stop();
@@ -115,7 +114,6 @@ static void UARTCommandTask(void *arg)
                         else
                         {
                             timer_notify_start();
-                            set_timer_state(true);
                         }
                     }
                     else if (strcasecmp(line_buf, "stop control") == 0)
@@ -127,7 +125,6 @@ static void UARTCommandTask(void *arg)
                         else
                         {
                             timer_notify_stop();
-                            set_timer_state(false);
                         }
                     }
                     else if (strcasecmp(line_buf, "print") == 0)

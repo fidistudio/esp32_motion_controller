@@ -11,6 +11,3 @@ void stop(void);
 void calibrate(Direction dir);
 void controlUpdate(void);
 void printLUT(void);
-
-bool is_timer_enabled(void);
-void set_timer_state(bool state);
