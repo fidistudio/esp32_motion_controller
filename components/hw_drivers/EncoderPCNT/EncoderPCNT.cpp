@@ -321,3 +321,10 @@ void Encoder::setDoneCallback(TaskHandle_t task)
 {
     done_task_ = task;
 }
+
+void Encoder::clearDT()
+{
+    portENTER_CRITICAL(&mux_);
+    dt_ = 0;
+    portEXIT_CRITICAL(&mux_);
+}

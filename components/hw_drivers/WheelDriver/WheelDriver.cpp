@@ -82,10 +82,12 @@ void WheelDriver::nvsTaskLoop()
 void WheelDriver::setDuty(float new_duty)
 {
     motor_.setDuty(new_duty);
-    if (new_duty >= 0)
+    if (new_duty > 0)
         encoder_.setInverted(false);
-    else
+    else if (new_duty < 0)
         encoder_.setInverted(true);
+    else
+        encoder_.clearDT();
 }
 
 void WheelDriver::stop()

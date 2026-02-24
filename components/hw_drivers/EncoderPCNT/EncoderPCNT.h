@@ -95,6 +95,7 @@ public:
     bool isInverted();
     float getVelocity(VelocityUnits units);
     void setDoneCallback(TaskHandle_t task);
+    void clearDT();
 
 private:
     static void taskEntry(void *arg);
