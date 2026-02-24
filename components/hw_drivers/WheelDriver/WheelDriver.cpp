@@ -30,26 +30,12 @@ WheelDriver::WheelDriver(
         5,
         &calibrate_task_handle_,
         tskNO_AFFINITY);
-
-    xTaskCreatePinnedToCore(
-        WheelDriver::nvsTaskEntry,
-        "NVSTask",
-        4096,
-        this,
-        5,
-        &nvs_task_handle_,
-        tskNO_AFFINITY);
     encoder_.setDoneCallback(calibrate_task_handle_);
 }
 
 void WheelDriver::calibrateTaskEntry(void *arg)
 {
     static_cast<WheelDriver *>(arg)->calibrateTaskLoop();
-}
-
-void WheelDriver::nvsTaskEntry(void *arg)
-{
-    static_cast<WheelDriver *>(arg)->nvsTaskLoop();
 }
 
 void WheelDriver::calibrateTaskLoop()
@@ -66,15 +52,6 @@ void WheelDriver::calibrateTaskLoop()
         encoder_.startCalibration();
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         motor_.stop();
-        xTaskNotifyGive(nvs_task_handle_);
-    }
-}
-
-void WheelDriver::nvsTaskLoop()
-{
-    while (true)
-    {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         lut_store_.saveLUT(isInverted());
     }
 }
