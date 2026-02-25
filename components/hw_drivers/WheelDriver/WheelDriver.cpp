@@ -93,6 +93,7 @@ void WheelDriver::setDuty(float new_duty)
 void WheelDriver::stop()
 {
     motor_.stop();
+    encoder_.clearDT();
     if (encoder_.isCalibrating())
         encoder_.stopCalibration();
 }
