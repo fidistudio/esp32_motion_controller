@@ -1,18 +1,15 @@
-#include "PidController.h"
+#include "PIDController.h"
 
 #include "esp_log.h"
 
-namespace
-{
-  constexpr float kMinSampleTime = 1e-9f;
+namespace {
+constexpr float kMinSampleTime = 1e-9f;
 }
 
 PIDController::PIDController(const PIDGains &gains, const PIDTiming &timing)
-    : gains_(gains), timing_(timing)
-{
+    : gains_(gains), timing_(timing) {
 
-  if (timing_.sampleTime <= 0.0f)
-  {
+  if (timing_.sampleTime <= 0.0f) {
     timing_.sampleTime = kMinSampleTime;
   }
 
@@ -21,16 +18,14 @@ PIDController::PIDController(const PIDGains &gains, const PIDTiming &timing)
   discretizeModel();
 }
 
-void PIDController::reset()
-{
+void PIDController::reset() {
   prevError1_ = 0.0f;
   prevError2_ = 0.0f;
   prevOutput1_ = 0.0f;
   prevOutput2_ = 0.0f;
 }
 
-float PIDController::update(float error)
-{
+float PIDController::update(float error) {
   const float output = (b0_ * error) + (b1_ * prevError1_) +
                        (b2_ * prevError2_) - (a1_ * prevOutput1_) -
                        (a2_ * prevOutput2_);
@@ -43,15 +38,13 @@ float PIDController::update(float error)
   return output;
 }
 
-void PIDController::computeContinuousModel()
-{
+void PIDController::computeContinuousModel() {
   contA_ = gains_.kp * timing_.filterTime + gains_.kd;
   contB_ = gains_.kp + gains_.ki * timing_.filterTime;
   contC_ = gains_.ki;
 }
 
-void PIDController::discretizeModel()
-{
+void PIDController::discretizeModel() {
   const float alpha = 2.0f / timing_.sampleTime;
   const float alpha2 = alpha * alpha;
 
