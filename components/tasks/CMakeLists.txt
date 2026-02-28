@@ -3,6 +3,7 @@ idf_component_register(
         "UARTCommandTask/UARTCommandTask.cpp"
         "ControlTask/ControlTask.cpp"
         "TimerNotifyTask/TimerNotifyTask.cpp"
+        "SensorMeasureTask/SensorMeasureTask.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES

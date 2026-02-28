@@ -4,12 +4,18 @@ idf_component_register(
         "MotorPWM/MotorPWM.cpp"
         "WheelDriver/WheelDriver.cpp"
         "LUTStore/LUTStore.cpp"
+        "mpu9250/ak8963.c"
+        "mpu9250/calibrate.c"
+        "mpu9250/common.c"
+        "mpu9250/i2c-easy.c"
+        "mpu9250/mpu9250.c"
     INCLUDE_DIRS
         "."
         "EncoderPCNT"
         "MotorPWM"
         "WheelDriver"
         "LUTStore"
+        "mpu9250/include"
     REQUIRES
         driver
         esp_timer
