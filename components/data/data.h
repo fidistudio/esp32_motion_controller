@@ -1,14 +1,15 @@
 #pragma once
-#include "WheelDriver/WheelDriver.h"
 #include "EncoderPCNT/EncoderPCNT.h"
+#include "WheelDriver/WheelDriver.h"
 #include "freertos/FreeRTOS.h"
 
 void dataInit(void);
-void setDuty(float new_duty);
-void setTargetSpeed(float targetSpeed);
-float getVelocity(VelocityUnits units);
+void setDuty(float new_duty_left, float new_duty_right);
+void setTargetSpeed(float linear, float angular);
 void stop(void);
 void calibrate(Direction dir);
+float getVelocityLeft(VelocityUnits units);
+float getVelocityRight(VelocityUnits units);
 void controlUpdate(void);
 void printLUT(void);
 
