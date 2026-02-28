@@ -63,6 +63,12 @@ static void UARTCommandTask(void *arg) {
             if (parsed != 2) {
               ESP_LOGW(TAG, "Formato inválido. Use: twist: <linear> <angular>");
             } else {
+              if (is_timer_enabled()) {
+                ESP_LOGW(TAG, "Timer ya habilitado");
+              } else {
+                timer_notify_start();
+                set_timer_state(true);
+              }
               setTargetSpeed(linear, angular);
               ESP_LOGI(TAG, "TWIST recibido v=%.3f m/s w=%.3f rad/s", linear,
                        angular);
