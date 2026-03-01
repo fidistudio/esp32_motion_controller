@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <cstddef>
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,8 +83,6 @@ static void sensorTask(void *arg) {
   vTaskDelete(NULL);
 }
 
-TaskHandle_t sensorMeasureTaskStart(void) {
-  TaskHandle_t handle = NULL;
-  xTaskCreate(sensorTask, "sensorTask", 4096, NULL, 10, &handle);
-  return handle;
+void sensorMeasureTaskStart(void) {
+  xTaskCreate(sensorTask, "sensorTask", 4096, NULL, 10, NULL);
 }

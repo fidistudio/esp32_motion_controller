@@ -7,4 +7,4 @@
  * @brief Inicia la task que lee los sensores (IMU por ahora)
  * @return TaskHandle_t handle de la task creada
  */
-TaskHandle_t sensorMeasureTaskStart(void);
+void sensorMeasureTaskStart(void);
