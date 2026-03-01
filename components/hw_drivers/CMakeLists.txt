@@ -9,6 +9,7 @@ idf_component_register(
         "mpu9250/common.c"
         "mpu9250/i2c-easy.c"
         "mpu9250/mpu9250.c"
+        "UWBDriver/UWBDriver.cpp"
     INCLUDE_DIRS
         "."
         "EncoderPCNT"
@@ -16,6 +17,7 @@ idf_component_register(
         "WheelDriver"
         "LUTStore"
         "mpu9250/include"
+        "UWBDriver"
     REQUIRES
         driver
         esp_timer

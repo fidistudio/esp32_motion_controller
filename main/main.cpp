@@ -2,6 +2,7 @@
 #include "SensorMeasureTask/SensorMeasureTask.h"
 #include "TimerNotifyTask/TimerNotifyTask.h"
 #include "UARTCommandTask/UARTCommandTask.h"
+#include "UWBMeasureTask/UWBMeasureTask.h"
 #include "data.h"
 
 extern "C" void app_main(void) {
@@ -19,5 +20,8 @@ extern "C" void app_main(void) {
   commandTaskInit();
 
   // Inicia task que lee los sensores (IMU por ahora)
-  TaskHandle_t sensor_task_handle = sensorMeasureTaskStart();
+  sensorMeasureTaskStart();
+
+  // Task RYUW
+  uwbMeasureTaskStart();
 }
