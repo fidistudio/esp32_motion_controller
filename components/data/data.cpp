@@ -19,23 +19,23 @@ static const ledc_timer_bit_t MOTOR_RESOLUTION = LEDC_TIMER_10_BIT;
 static const uint32_t MOTOR_PWM_FREQ = 20000; // 20 kHz
 
 static const int8_t NUM_SECTORS = 15;
-static constexpr float WHEEL_RADIUS_LEFT = 0.15f;  // meters
-static constexpr float WHEEL_RADIUS_RIGHT = 0.15f; // meters
-static constexpr float WHEEL_BASE = 0.40f;         // meters
+static constexpr float WHEEL_RADIUS_LEFT = 0.31f / 2.0f; // meters
+static constexpr float WHEEL_RADIUS_RIGHT = 0.31 / 2.0f; // meters
+static constexpr float WHEEL_BASE = 0.37f;               // meters
 
 static float target_speed_left_ = 0;
 static float target_speed_right_ = 0;
 
 static MotorConfig motor_left_cfg = {
-    GPIO_NUM_25, GPIO_NUM_26, LEDC_CHANNEL_0,  LEDC_CHANNEL_1,
+    GPIO_NUM_26, GPIO_NUM_25, LEDC_CHANNEL_0,  LEDC_CHANNEL_1,
     MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
 
 static MotorConfig motor_right_cfg = {
     GPIO_NUM_27, GPIO_NUM_14, LEDC_CHANNEL_2,  LEDC_CHANNEL_3,
     MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
 
-static EncoderConfig encoder_left_cfg = {GPIO_NUM_22, GPIO_NUM_23};
-static EncoderConfig encoder_right_cfg = {GPIO_NUM_21, GPIO_NUM_19};
+static EncoderConfig encoder_left_cfg = {GPIO_NUM_23, GPIO_NUM_22};
+static EncoderConfig encoder_right_cfg = {GPIO_NUM_19, GPIO_NUM_21};
 
 float lut_left[NUM_SECTORS][2];
 float lut_right[NUM_SECTORS][2];
@@ -43,7 +43,7 @@ float lut_right[NUM_SECTORS][2];
 static PIDGains pid_gains_left = {0.057898, 0.773253, 0.000000};
 static PIDGains pid_gains_right = {0.056569, 0.757286, 0.000000};
 
-static PIDTiming pid_timing = {0.01, 0.001};
+static PIDTiming pid_timing = {0.01, 1e-6};
 
 /* ================= NVS ================= */
 
@@ -92,12 +92,12 @@ void dataInit(void) {
   }
   ESP_ERROR_CHECK(ret);
 
-  controller_left = new PIDController(pid_gains_left, pid_timing);
+  controller_left = new PIDController(pid_gains_left, pid_timing, 0.1);
   wheel_left = new WheelDriver(motor_left_cfg, encoder_left_cfg, NUM_SECTORS,
                                nvs_namespace_left, lut_left);
   wheel_left->loadLUT();
 
-  controller_right = new PIDController(pid_gains_right, pid_timing);
+  controller_right = new PIDController(pid_gains_right, pid_timing, 0.1);
   wheel_right = new WheelDriver(motor_right_cfg, encoder_right_cfg, NUM_SECTORS,
                                 nvs_namespace_right, lut_right);
   wheel_right->loadLUT();
@@ -113,11 +113,10 @@ void setDuty(float new_duty_left, float new_duty_right) {
 }
 
 void setTargetSpeed(float linear, float angular) {
-  float omega_l = (linear - 0.5f * WHEEL_BASE * angular) / WHEEL_RADIUS_RIGHT;
-  float omega_r = (linear + 0.5f * WHEEL_BASE * angular) / WHEEL_RADIUS_LEFT;
-
-  target_speed_left_ = omega_l;
+  float omega_l = (linear - 0.5f * WHEEL_BASE * angular) / WHEEL_RADIUS_LEFT;
+  float omega_r = (linear + 0.5f * WHEEL_BASE * angular) / WHEEL_RADIUS_RIGHT;
   target_speed_right_ = omega_r;
+  target_speed_left_ = omega_l;
 }
 
 void stop(void) {
@@ -139,15 +138,18 @@ float getVelocityRight(VelocityUnits units) {
 }
 
 void controlUpdate(void) {
-  float duty_left = controller_left->update(
-      target_speed_left_ - wheel_left->getVelocity(VelocityUnits::RAD_S));
+  float error_left =
+      target_speed_left_ - wheel_left->getVelocity(VelocityUnits::RAD_S);
 
-  float duty_right = controller_right->update(
-      target_speed_right_ - wheel_right->getVelocity(VelocityUnits::RAD_S));
+  float duty_left = controller_left->update(error_left);
+
+  float error_right =
+      target_speed_right_ - wheel_right->getVelocity(VelocityUnits::RAD_S);
+  float duty_right = controller_right->update(error_right);
 
   wheel_left->setDuty(duty_left);
   wheel_right->setDuty(duty_right);
-  ESP_LOGI(TAG, "Left: %f Right: %f", duty_left, duty_right);
+  ESP_LOGI(TAG, "Error Left: %f Error Right: %f", error_left, error_right);
 }
 
 void printLUT(void) {

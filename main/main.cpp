@@ -20,8 +20,8 @@ extern "C" void app_main(void) {
   commandTaskInit();
 
   // Inicia task que lee los sensores (IMU por ahora)
-  sensorMeasureTaskStart();
+  // sensorMeasureTaskStart();
 
   // Task RYUW
-  uwbMeasureTaskStart();
+  // uwbMeasureTaskStart();
 }

@@ -20,7 +20,8 @@ static void controlTask(void *arg) {
     vel_left = getVelocityLeft(VelocityUnits::RAD_S);
     vel_right = getVelocityRight(VelocityUnits::RAD_S);
 
-    ESP_LOGI(TAG, "Velocidad L: %.2f RPM | R: %.2f RPM", vel_left, vel_right);
+    ESP_LOGI(TAG, "Velocidad L: %.2f RAD_S | R: %.2f RAD_S", vel_left,
+             vel_right);
   }
 }
 
