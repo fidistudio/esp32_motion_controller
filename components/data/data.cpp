@@ -140,15 +140,23 @@ float getVelocityRight(VelocityUnits units) {
 void controlUpdate(void) {
   float error_left =
       target_speed_left_ - wheel_left->getVelocity(VelocityUnits::RAD_S);
-
-  float duty_left = controller_left->update(error_left);
+  float duty_left = controller_left->update(abs(error_left));
+  if (error_left >= 0) {
+    wheel_left->setDuty(duty_left);
+  } else {
+    wheel_left->setDuty(-duty_left);
+  }
 
   float error_right =
       target_speed_right_ - wheel_right->getVelocity(VelocityUnits::RAD_S);
-  float duty_right = controller_right->update(error_right);
+  float duty_right = controller_right->update(abs(error_right));
 
-  wheel_left->setDuty(duty_left);
-  wheel_right->setDuty(duty_right);
+  if (error_right >= 0) {
+    wheel_right->setDuty(duty_right);
+  } else {
+    wheel_right->setDuty(-duty_right);
+  }
+
   ESP_LOGI(TAG, "Error Left: %f Error Right: %f", error_left, error_right);
 }
 
