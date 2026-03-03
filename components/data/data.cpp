@@ -40,8 +40,8 @@ static EncoderConfig encoder_right_cfg = {GPIO_NUM_19, GPIO_NUM_21};
 float lut_left[NUM_SECTORS][2];
 float lut_right[NUM_SECTORS][2];
 
-static PIDGains pid_gains_left = {0.057898, 0.773253, 0.000000};
-static PIDGains pid_gains_right = {0.056569, 0.757286, 0.000000};
+static PIDGains pid_gains_left = {0.0, 0.257737, 0.0};
+static PIDGains pid_gains_right = {0.0, 0.263106, 0.0};
 
 static PIDTiming pid_timing = {0.01, 1e-6};
 
