@@ -1,15 +1,13 @@
 #include "PIDController.h"
 
 #include "esp_log.h"
-#include <algorithm> // std::clamp
 
 namespace {
 constexpr float kMinSampleTime = 1e-9f;
 }
 
-PIDController::PIDController(const PIDGains &gains, const PIDTiming &timing,
-                             float maxStep)
-    : gains_(gains), timing_(timing), maxStep_(maxStep) {
+PIDController::PIDController(const PIDGains &gains, const PIDTiming &timing)
+    : gains_(gains), timing_(timing) {
 
   if (timing_.sampleTime <= 0.0f) {
     timing_.sampleTime = kMinSampleTime;
@@ -28,16 +26,10 @@ void PIDController::reset() {
 }
 
 float PIDController::update(float error) {
-  // PID recursivo
-  float output = (b0_ * error) + (b1_ * prevError1_) + (b2_ * prevError2_) -
-                 (a1_ * prevOutput1_) - (a2_ * prevOutput2_);
+  const float output = (b0_ * error) + (b1_ * prevError1_) +
+                       (b2_ * prevError2_) - (a1_ * prevOutput1_) -
+                       (a2_ * prevOutput2_);
 
-  // Aplicar delta limit
-  float delta = output - prevOutput1_;
-  delta = std::clamp(delta, -maxStep_, maxStep_);
-  output = prevOutput1_ + delta;
-
-  // Guardar estados
   prevError2_ = prevError1_;
   prevError1_ = error;
   prevOutput2_ = prevOutput1_;

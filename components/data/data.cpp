@@ -92,12 +92,12 @@ void dataInit(void) {
   }
   ESP_ERROR_CHECK(ret);
 
-  controller_left = new PIDController(pid_gains_left, pid_timing, 0.1);
+  controller_left = new PIDController(pid_gains_left, pid_timing);
   wheel_left = new WheelDriver(motor_left_cfg, encoder_left_cfg, NUM_SECTORS,
                                nvs_namespace_left, lut_left);
   wheel_left->loadLUT();
 
-  controller_right = new PIDController(pid_gains_right, pid_timing, 0.1);
+  controller_right = new PIDController(pid_gains_right, pid_timing);
   wheel_right = new WheelDriver(motor_right_cfg, encoder_right_cfg, NUM_SECTORS,
                                 nvs_namespace_right, lut_right);
   wheel_right->loadLUT();
