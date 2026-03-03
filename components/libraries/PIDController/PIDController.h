@@ -1,49 +1,50 @@
 #pragma once
 
+#include <algorithm> // para std::clamp
 #include <cstdint>
 
-struct PidGains {
+struct PIDGains {
   float kp;
   float ki;
   float kd;
 };
 
-struct PidTiming {
+struct PIDTiming {
   float sampleTime; // Ts [s]
   float filterTime; // Tf [s] (0 = no filter)
 };
 
-class PidController {
+class PIDController {
 public:
-  PidController(const PidGains &gains, const PidTiming &timing);
+  PIDController(const PIDGains &gains, const PIDTiming &timing,
+                float maxStep = 1.0f);
 
   float update(float error);
   void reset();
 
+  void setMaxStep(float maxStep) { maxStep_ = maxStep; }
+
 private:
-  // --- Initialization steps ---
   void computeContinuousModel();
   void discretizeModel();
 
-  // --- User configuration ---
-  PidGains gains_;
-  PidTiming timing_;
+  PIDGains gains_;
+  PIDTiming timing_;
 
-  // --- Continuous-time model coefficients ---
   float contA_;
   float contB_;
   float contC_;
 
-  // --- Discrete-time (Tustin) coefficients ---
   float b0_;
   float b1_;
   float b2_;
   float a1_;
   float a2_;
 
-  // --- Controller state ---
   float prevError1_;
   float prevError2_;
   float prevOutput1_;
   float prevOutput2_;
+
+  float maxStep_;
 };

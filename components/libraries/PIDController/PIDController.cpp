@@ -1,11 +1,15 @@
-#include "PidController.h"
+#include "PIDController.h"
+
+#include "esp_log.h"
+#include <algorithm> // std::clamp
 
 namespace {
 constexpr float kMinSampleTime = 1e-9f;
 }
 
-PidController::PidController(const PidGains &gains, const PidTiming &timing)
-    : gains_(gains), timing_(timing) {
+PIDController::PIDController(const PIDGains &gains, const PIDTiming &timing,
+                             float maxStep)
+    : gains_(gains), timing_(timing), maxStep_(maxStep) {
 
   if (timing_.sampleTime <= 0.0f) {
     timing_.sampleTime = kMinSampleTime;
@@ -16,18 +20,24 @@ PidController::PidController(const PidGains &gains, const PidTiming &timing)
   discretizeModel();
 }
 
-void PidController::reset() {
+void PIDController::reset() {
   prevError1_ = 0.0f;
   prevError2_ = 0.0f;
   prevOutput1_ = 0.0f;
   prevOutput2_ = 0.0f;
 }
 
-float PidController::update(float error) {
-  const float output = (b0_ * error) + (b1_ * prevError1_) +
-                       (b2_ * prevError2_) - (a1_ * prevOutput1_) -
-                       (a2_ * prevOutput2_);
+float PIDController::update(float error) {
+  // PID recursivo
+  float output = (b0_ * error) + (b1_ * prevError1_) + (b2_ * prevError2_) -
+                 (a1_ * prevOutput1_) - (a2_ * prevOutput2_);
 
+  // Aplicar delta limit
+  float delta = output - prevOutput1_;
+  delta = std::clamp(delta, -maxStep_, maxStep_);
+  output = prevOutput1_ + delta;
+
+  // Guardar estados
   prevError2_ = prevError1_;
   prevError1_ = error;
   prevOutput2_ = prevOutput1_;
@@ -36,13 +46,13 @@ float PidController::update(float error) {
   return output;
 }
 
-void PidController::computeContinuousModel() {
+void PIDController::computeContinuousModel() {
   contA_ = gains_.kp * timing_.filterTime + gains_.kd;
   contB_ = gains_.kp + gains_.ki * timing_.filterTime;
   contC_ = gains_.ki;
 }
 
-void PidController::discretizeModel() {
+void PIDController::discretizeModel() {
   const float alpha = 2.0f / timing_.sampleTime;
   const float alpha2 = alpha * alpha;
 
@@ -57,4 +67,5 @@ void PidController::discretizeModel() {
 
   a2_ =
       (timing_.filterTime * alpha - 1.0f) / (timing_.filterTime * alpha + 1.0f);
+  ESP_LOGI("PID", "alpha=%f denominator=%f", alpha, denominator);
 }

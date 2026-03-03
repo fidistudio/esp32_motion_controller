@@ -1,0 +1,27 @@
+menu "MPU9250 Configuration"
+
+config CALIBRATION_MODE
+    bool "When running, go into calibration mode."
+    default n
+    help
+      Each MPU9250 needs to be calibrated before it will work properly.
+      When enabled, this will go through a set of calibration instructions.
+
+config SAMPLE_RATE_Hz
+    int "The sample rate of the MPU9250, in Hz"
+    default 200
+    help
+      This has been tested with 200 Hz, although all possible options
+      should include 50, 100, 200, and 250 Hz.
+
+# Safety: define a default if CONFIG_SAMPLE_RATE_Hz is not defined
+# This avoids compile errors before menuconfig is run
+endmenu
+
+# Workaround for code that includes common.h before menuconfig
+# Define a fallback if CONFIG_SAMPLE_RATE_Hz is missing
+ifndef CONFIG_SAMPLE_RATE_Hz
+    config SAMPLE_RATE_Hz_DEFAULT
+        int "Default sample rate (fallback)"
+        default 200
+endif

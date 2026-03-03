@@ -1,37 +1,124 @@
-# ==============================
-# ESP-IDF project stable .gitignore
-# ==============================
+# ==================================================
+# Generic C / C++ (GitHub template)
+# ==================================================
 
-# Build artefacts (no necesarios para compilar desde cero)
-build/
-build.clang/
-*.bin
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
 *.elf
+
+# Linker output
+*.ilk
 *.map
-*.log
-*.tmp
+*.exp
 
-# Espressif tools cache (reproducible desde IDF)
-.espressif/
-.cache/
+# Precompiled Headers
+*.gch
+*.pch
 
-# SDK config backups (el sdkconfig principal sí se guarda)
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+# Debug information files
+*.dwo
+
+
+# ==================================================
+# ESP-IDF
+# ==================================================
+
+# Build output
+build/
 sdkconfig.old
-sdkconfig.defaults
-sdkconfig.ci
 
-# IDE / Editores
+# Managed components (IDF v5+)
+managed_components/
+dependencies.lock
+
+# ESP-IDF tools & environment
+.espressif/
+idf-env.json
+
+# Core dumps
+core
+
+
+# ==================================================
+# CMake
+# ==================================================
+
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+
+# ==================================================
+# IDEs & Editors
+# ==================================================
+
+# VS Code
 .vscode/
+*.code-workspace
+.clangd
+compile_commands.json
+
+# CLion
 .idea/
+cmake-build-*/
+
+# Other editors
 *.swp
 *.swo
+*~
 
-# Python virtual env
-.venv/
-env/
-venv/
 
+# ==================================================
 # OS files
-.DS_Store
-Thumbs.db
+# ==================================================
 
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Root cache directory
+/.cache/

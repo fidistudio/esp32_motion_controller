@@ -1,0 +1,25 @@
+idf_component_register(
+    SRCS
+        "EncoderPCNT/EncoderPCNT.cpp"
+        "MotorPWM/MotorPWM.cpp"
+        "WheelDriver/WheelDriver.cpp"
+        "LUTStore/LUTStore.cpp"
+        "mpu9250/ak8963.c"
+        "mpu9250/calibrate.c"
+        "mpu9250/common.c"
+        "mpu9250/i2c-easy.c"
+        "mpu9250/mpu9250.c"
+        "UWBDriver/UWBDriver.cpp"
+    INCLUDE_DIRS
+        "."
+        "EncoderPCNT"
+        "MotorPWM"
+        "WheelDriver"
+        "LUTStore"
+        "mpu9250/include"
+        "UWBDriver"
+    REQUIRES
+        driver
+        esp_timer
+        nvs_flash
+)
