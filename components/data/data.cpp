@@ -9,6 +9,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "soc/gpio_num.h"
+#include <cstdint>
 #include <string>
 
 /* ================= Configuración ================= */
@@ -22,6 +23,7 @@ static const int8_t NUM_SECTORS = 15;
 static constexpr float WHEEL_RADIUS_LEFT = 0.31f / 2.0f; // meters
 static constexpr float WHEEL_RADIUS_RIGHT = 0.31 / 2.0f; // meters
 static constexpr float WHEEL_BASE = 0.37f;               // meters
+uint64_t i = 0;
 
 static float target_speed_left_ = 0;
 static float target_speed_right_ = 0;
@@ -43,7 +45,7 @@ float lut_right[NUM_SECTORS][2];
 static PIDGains pid_gains_left = {0.0, 0.257737, 0.0};
 static PIDGains pid_gains_right = {0.0, 0.263106, 0.0};
 
-static PIDTiming pid_timing = {0.01, 1e-6};
+static PIDTiming pid_timing = {0.01, 0};
 
 /* ================= NVS ================= */
 
@@ -122,6 +124,9 @@ void setTargetSpeed(float linear, float angular) {
 void stop(void) {
   wheel_left->stop();
   wheel_right->stop();
+
+  controller_right->reset();
+  controller_left->reset();
 }
 
 void calibrate(Direction dir) {
@@ -140,24 +145,19 @@ float getVelocityRight(VelocityUnits units) {
 void controlUpdate(void) {
   float error_left =
       target_speed_left_ - wheel_left->getVelocity(VelocityUnits::RAD_S);
-  float duty_left = controller_left->update(abs(error_left));
-  if (error_left >= 0) {
-    wheel_left->setDuty(duty_left);
-  } else {
-    wheel_left->setDuty(-duty_left);
-  }
-
   float error_right =
       target_speed_right_ - wheel_right->getVelocity(VelocityUnits::RAD_S);
-  float duty_right = controller_right->update(abs(error_right));
 
-  if (error_right >= 0) {
-    wheel_right->setDuty(duty_right);
-  } else {
-    wheel_right->setDuty(-duty_right);
+  float duty_left = controller_left->update(error_left);
+  float duty_right = controller_right->update(error_right);
+
+  wheel_left->setDuty(duty_left);
+  wheel_right->setDuty(duty_right);
+
+  if (i++ % 10 == 0) {
+    ESP_LOGI(TAG, "Target left: %f Target Right: %f", target_speed_left_,
+             target_speed_right_);
   }
-
-  ESP_LOGI(TAG, "Error Left: %f Error Right: %f", error_left, error_right);
 }
 
 void printLUT(void) {
