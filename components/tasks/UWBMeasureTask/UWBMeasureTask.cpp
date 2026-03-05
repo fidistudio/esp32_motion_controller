@@ -4,14 +4,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <cmath>
+#include <cstdint>
 #include <string>
 
 static const char *TAG = "UWBMeasureTask";
 
 // ------------------ Configuración de antenas en el espacio ------------------
-static coord Ant1{0.0f, 0.0f, 0.2f}; // x,y,z en metros
-static coord Ant2{2.0f, 0.0f, 0.25f};
-static coord Ant3{1.0f, 2.0f, 0.3f};
+static coord Ant1{0.1f, 0.1f, -0.38f}; // x,y,z en metros
+static coord Ant2{2.66f, 3.95f, -0.38f};
+static coord Ant3{5.56, 0.1, -0.38f};
 
 // ------------------ Estado publicado ------------------
 static UWBState uwb_state;
@@ -39,13 +40,19 @@ static coord TriangularPosicion2D(float d1, float d2, float d3) {
   float x2 = Ant2.x, y2 = Ant2.y;
   float x3 = Ant3.x, y3 = Ant3.y;
 
+  // Radios al cuadrado
+  float r1_sq = r1 * r1;
+  float r2_sq = r2 * r2;
+  float r3_sq = r3 * r3;
+
+  // Matriz del sistema de ecuaciones
   float A1 = 2 * (x2 - x1);
   float B1 = 2 * (y2 - y1);
-  float C1 = r1 * r1 - r2 * r2 - x1 * x1 + x2 * x2 - y1 * y1 + y2 * y2;
+  float C1 = r1_sq - r2_sq - x1 * x1 + x2 * x2 - y1 * y1 + y2 * y2;
 
   float A2 = 2 * (x3 - x1);
   float B2 = 2 * (y3 - y1);
-  float C2 = r1 * r1 - r3 * r3 - x1 * x1 + x3 * x3 - y1 * y1 + y3 * y3;
+  float C2 = r1_sq - r3_sq - x1 * x1 + x3 * x3 - y1 * y1 + y3 * y3;
 
   float D = A1 * B2 - A2 * B1;
 
@@ -83,6 +90,9 @@ static void uwbTask(void *arg) {
     uwb_state.timestamp_us = esp_timer_get_time();
 
     vTaskDelay(period);
+
+    ESP_LOGI(TAG, "Posicion estimada, X= %.3f, Y= %.3f", uwb_state.x,
+             uwb_state.y);
   }
 
   vTaskDelete(NULL);
