@@ -23,5 +23,5 @@ extern "C" void app_main(void) {
   // sensorMeasureTaskStart();
 
   // Task RYUW
-  // uwbMeasureTaskStart();
+  uwbMeasureTaskStart();
 }
