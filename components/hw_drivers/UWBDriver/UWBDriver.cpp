@@ -76,6 +76,7 @@ bool UWBDriver::parseDistance(const std::string &line, float &distance_m) {
 
 // ------------------ Función pública ------------------
 bool UWBDriver::getDistance(const char *tag_id, float &distance_m) {
+
   std::string cmd = "AT+ANCHOR_SEND=";
   cmd += tag_id;
   cmd += ",4,TEST";
@@ -84,16 +85,22 @@ bool UWBDriver::getDistance(const char *tag_id, float &distance_m) {
     return false;
 
   std::string line;
+  std::string expected = "+ANCHOR_RCV=";
+  expected += tag_id;
 
-  // Leer hasta 5 líneas buscando respuesta del tag
-  for (int i = 0; i < 5; i++) {
-    if (!readLine(line, 100)) // timeout 100 ms
+  int64_t start = esp_timer_get_time();
+
+  while (true) {
+
+    if (!readLine(line, 200))
       return false;
 
-    if (line.find("+ANCHOR_RCV=") != std::string::npos) {
+    if (line.find(expected) != std::string::npos) {
       return parseDistance(line, distance_m);
     }
-  }
 
-  return false;
+    // timeout total de 1s
+    if ((esp_timer_get_time() - start) > 1000000)
+      return false;
+  }
 }
