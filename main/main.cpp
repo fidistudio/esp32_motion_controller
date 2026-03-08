@@ -4,6 +4,7 @@
 #include "TimerNotifyTask/TimerNotifyTask.h"
 #include "UARTCommandTask/UARTCommandTask.h"
 #include "UWBMeasureTask/UWBMeasureTask.h"
+#include "UarttelemetryTask/UarttelemetryTask.h"
 #include "data.h"
 
 extern "C" void app_main(void) {
@@ -19,6 +20,7 @@ extern "C" void app_main(void) {
 
   // Inicializa task de comandos UART
   commandTaskInit();
+  telemetryTaskStart(50);
 
   // Inicia task que lee la IMU
   sensorMeasureTaskStart();
