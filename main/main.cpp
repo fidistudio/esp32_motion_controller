@@ -1,4 +1,5 @@
 #include "ControlTask/ControlTask.h"
+#include "EKFTask/EKFTask.h"
 #include "SensorMeasureTask/SensorMeasureTask.h"
 #include "TimerNotifyTask/TimerNotifyTask.h"
 #include "UARTCommandTask/UARTCommandTask.h"
@@ -19,9 +20,12 @@ extern "C" void app_main(void) {
   // Inicializa task de comandos UART
   commandTaskInit();
 
-  // Inicia task que lee los sensores (IMU por ahora)
-  // sensorMeasureTaskStart();
+  // Inicia task que lee la IMU
+  sensorMeasureTaskStart();
 
   // Task RYUW
   uwbMeasureTaskStart();
+
+  // Task EKF
+  ekfTaskStart(50);
 }
