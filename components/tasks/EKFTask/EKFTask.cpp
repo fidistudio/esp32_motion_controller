@@ -19,7 +19,7 @@ static const char *TAG = "EKFTask";
  * =============================================================== */
 static constexpr float WHEEL_RADIUS_L = 0.31f / 2.0f; // metros
 static constexpr float WHEEL_RADIUS_R = 0.31f / 2.0f;
-static constexpr float HALF_BASE = 0.37f / 2.0f; // b/2
+static constexpr float HALF_BASE = 0.37f / 2.0f; // b
 
 /* ===============================================================
  *  Parámetros del filtro — ajustar tras pruebas
