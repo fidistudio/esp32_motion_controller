@@ -5,6 +5,7 @@ idf_component_register(
         "TimerNotifyTask/TimerNotifyTask.cpp"
         "SensorMeasureTask/SensorMeasureTask.cpp"
         "UWBMeasureTask/UWBMeasureTask.cpp"
+        "EKFTask/EKFTask.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES
