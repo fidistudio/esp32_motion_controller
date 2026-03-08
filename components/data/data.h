@@ -10,6 +10,11 @@ void stop(void);
 void calibrate(Direction dir);
 float getVelocityLeft(VelocityUnits units);
 float getVelocityRight(VelocityUnits units);
+float getPositionLeft(void);
+float getPositionRight(void);
+void resetPositions(void);
+bool isInvertedLeft(void);
+bool isInvertedRight(void);
 void controlUpdate(void);
 void printLUT(void);
 

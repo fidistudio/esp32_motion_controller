@@ -142,6 +142,17 @@ float getVelocityRight(VelocityUnits units) {
   return wheel_right->getVelocity(units);
 }
 
+float getPositionLeft(void) { return wheel_left->getPosition(); }
+float getPositionRight(void) { return wheel_right->getPosition(); }
+
+void resetPositions(void) {
+  wheel_left->resetPosition();
+  wheel_right->resetPosition();
+}
+
+bool isInvertedLeft(void) { return wheel_left->isInverted(); }
+bool isInvertedRight(void) { return wheel_right->isInverted(); }
+
 void controlUpdate(void) {
   float error_left =
       target_speed_left_ - wheel_left->getVelocity(VelocityUnits::RAD_S);
