@@ -3,15 +3,29 @@
 #include <cstdint>
 
 /**
- * @brief Estado de pose publicado por la EKFTask.
+ * @brief Estado completo publicado por la EKFTask a 20 Hz.
  *
- * Actualizado a 20 Hz (predicción) y corregido a ~1 Hz (UWB)
- * y siempre que haya nueva medición IMU disponible.
+ * Contiene:
+ *  - Pose 2D estimada por el EKF  → publicar en /odom
+ *  - Posición y velocidad de cada rueda → publicar en /joint_states
  */
 struct EKFState {
-  float x;              ///< Posición X en metros
-  float y;              ///< Posición Y en metros
-  float theta;          ///< Orientación en radianes [-π, π]
+  /* ---- Pose 2D (EKF) ---- */
+  float x;     ///< Posición X en metros
+  float y;     ///< Posición Y en metros
+  float theta; ///< Orientación en radianes [-π, π]
+
+  /* ---- Rueda izquierda ---- */
+  float pos_left_rad;  ///< Posición angular acumulada [rad], crece indefinido
+  float vel_left_rads; ///< Velocidad angular [rad/s], con signo
+  bool dir_left_fwd;   ///< true = adelante, false = reversa
+
+  /* ---- Rueda derecha ---- */
+  float pos_right_rad;
+  float vel_right_rads;
+  bool dir_right_fwd;
+
+  /* ---- Meta ---- */
   int64_t timestamp_us; ///< Timestamp esp_timer_get_time()
   bool valid;           ///< true una vez que el filtro convergió
 };
@@ -19,7 +33,7 @@ struct EKFState {
 /**
  * @brief Inicia la EKFTask.
  *
- * Llamar a esta función desde main DESPUÉS de:
+ * Llamar desde main DESPUÉS de:
  *   - dataInit()
  *   - uwbMeasureTaskStart()
  *   - sensorMeasureTaskStart()
@@ -29,9 +43,7 @@ struct EKFState {
 void ekfTaskStart(uint32_t period_ms);
 
 /**
- * @brief Retorna puntero al estado EKF más reciente.
- *
- * Seguro de leer desde otras tasks (escritura atómica por campo float
- * en Xtensa LX6/LX7 con alineación natural).
+ * @brief Retorna puntero al estado más reciente.
+ * Seguro de leer desde otras tasks en Xtensa LX6/LX7.
  */
 const EKFState *ekfGetState(void);
