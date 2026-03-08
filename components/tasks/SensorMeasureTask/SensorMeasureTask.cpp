@@ -69,11 +69,11 @@ static void sensorTask(void *arg) {
                 vm.x, vm.y, vm.z);
 
     if (i++ % 10 == 0) {
-      float heading, pitch, roll, temp;
+      float yaw, pitch, roll, temp;
       ESP_ERROR_CHECK(get_temperature_celsius(&temp));
-      ahrs_get_euler_in_degrees(&heading, &pitch, &roll);
-      ESP_LOGI(TAG, "heading: %.3f°, pitch: %.3f°, roll: %.3f°, Temp %.2f°C",
-               heading, pitch, roll, temp);
+      ahrs_get_euler_in_degrees(&yaw, &pitch, &roll);
+      ESP_LOGI(TAG, "yaw: %.3f°, pitch: %.3f°, roll: %.3f°, Temp %.2f°C", yaw,
+               pitch, roll, temp);
     }
 
     vTaskDelay(pdMS_TO_TICKS(10));

@@ -2,8 +2,10 @@ idf_component_register(
     SRCS
         "PIDController/PIDController.cpp"
         "ahrs/ahrs.c"
+        "EKF/EKF.cpp"
     INCLUDE_DIRS
         "."
         "PIDController"
         "ahrs/include"
+        "EKF"
 )
