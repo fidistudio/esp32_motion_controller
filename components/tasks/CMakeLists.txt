@@ -6,6 +6,7 @@ idf_component_register(
         "SensorMeasureTask/SensorMeasureTask.cpp"
         "UWBMeasureTask/UWBMeasureTask.cpp"
         "EKFTask/EKFTask.cpp"
+        "UarttelemetryTask/UarttelemetryTask.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES
