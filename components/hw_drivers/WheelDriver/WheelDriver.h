@@ -63,9 +63,6 @@ private:
     const float CALIBRATE_DUTY = 0.3;
 
     TaskHandle_t calibrate_task_handle_;
-    TaskHandle_t nvs_task_handle_;
     static void calibrateTaskEntry(void *arg);
-    static void nvsTaskEntry(void *arg);
     void calibrateTaskLoop();
-    void nvsTaskLoop();
 };
