@@ -28,12 +28,12 @@ uint64_t i = 0;
 static float target_speed_left_ = 0;
 static float target_speed_right_ = 0;
 
-static MotorConfig motor_left_cfg = {
-    GPIO_NUM_26, GPIO_NUM_25, LEDC_CHANNEL_0,  LEDC_CHANNEL_1,
+static MotorConfig motor_right_cfg = {
+    GPIO_NUM_25, GPIO_NUM_26, LEDC_CHANNEL_0,  LEDC_CHANNEL_1,
     MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
 
-static MotorConfig motor_right_cfg = {
-    GPIO_NUM_27, GPIO_NUM_14, LEDC_CHANNEL_2,  LEDC_CHANNEL_3,
+static MotorConfig motor_left_cfg = {
+    GPIO_NUM_14, GPIO_NUM_27, LEDC_CHANNEL_2,  LEDC_CHANNEL_3,
     MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
 
 static EncoderConfig encoder_left_cfg = {GPIO_NUM_23, GPIO_NUM_22};
