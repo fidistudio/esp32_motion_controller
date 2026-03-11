@@ -28,16 +28,16 @@ uint64_t i = 0;
 static float target_speed_left_ = 0;
 static float target_speed_right_ = 0;
 
-static MotorConfig motor_left_cfg = {
-    GPIO_NUM_26, GPIO_NUM_25, LEDC_CHANNEL_0,  LEDC_CHANNEL_1,
-    MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
-
 static MotorConfig motor_right_cfg = {
-    GPIO_NUM_27, GPIO_NUM_14, LEDC_CHANNEL_2,  LEDC_CHANNEL_3,
+    GPIO_NUM_25, GPIO_NUM_26, LEDC_CHANNEL_0,  LEDC_CHANNEL_1,
     MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
 
-static EncoderConfig encoder_left_cfg = {GPIO_NUM_23, GPIO_NUM_22};
-static EncoderConfig encoder_right_cfg = {GPIO_NUM_19, GPIO_NUM_21};
+static MotorConfig motor_left_cfg = {
+    GPIO_NUM_14, GPIO_NUM_27, LEDC_CHANNEL_2,  LEDC_CHANNEL_3,
+    MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
+
+static EncoderConfig encoder_left_cfg = {GPIO_NUM_32, GPIO_NUM_33};
+static EncoderConfig encoder_right_cfg = {GPIO_NUM_34, GPIO_NUM_35};
 
 float lut_left[NUM_SECTORS][2];
 float lut_right[NUM_SECTORS][2];
@@ -112,6 +112,10 @@ void dataInit(void) {
 void setDuty(float new_duty_left, float new_duty_right) {
   wheel_left->setDuty(new_duty_left);
   wheel_right->setDuty(new_duty_right);
+
+  ESP_LOGI(TAG, "Vel_L: %.2f rad/s | Vel_R: %.2f rad/s",
+           wheel_left->getVelocity(VelocityUnits::RAD_S),
+           wheel_right->getVelocity(VelocityUnits::RAD_S));
 }
 
 void setTargetSpeed(float linear, float angular) {

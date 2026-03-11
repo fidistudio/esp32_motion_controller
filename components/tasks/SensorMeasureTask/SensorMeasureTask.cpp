@@ -24,17 +24,18 @@ static const char *TAG = "SensorMeasure";
  *  Estado publicado (escrito solo por sensorTask)
  * =============================================================== */
 static IMUState imu_state;
+static float yaw_offset_rad = 0.0f;
 
 /* ===============================================================
  *  Calibración
  * =============================================================== */
 static calibration_t cal = {
-    .mag_offset = {.x = 94.148438f, .y = 78.203125f, .z = 6.984375f},
-    .mag_scale = {.x = 1.344917f, .y = 0.878603f, .z = 0.894223f},
-    .gyro_bias_offset = {.x = -4.623848f, .y = -1.704701f, .z = 0.147797f},
-    .accel_offset = {.x = 0.018234f, .y = -0.020647f, .z = -0.065179f},
-    .accel_scale_lo = {.x = 0.987014f, .y = 0.983493f, .z = 0.986657f},
-    .accel_scale_hi = {.x = -0.996878f, .y = -1.006448f, .z = -1.026394f}};
+    .mag_offset = {.x = -30.175781, .y = 22.859375, .z = 118.734375},
+    .mag_scale = {.x = 1.372284, .y = 0.866263, .z = 0.895332},
+    .gyro_bias_offset = {.x = -5.224978, .y = -2.067095, .z = 0.309211},
+    .accel_offset = {.x = 0.023782, .y = -0.023231, .z = -0.054101},
+    .accel_scale_lo = {.x = 1.004463, .y = 0.986518, .z = 0.999627},
+    .accel_scale_hi = {.x = -0.989058, .y = -1.004135, .z = -1.033949}};
 
 /* ===============================================================
  *  Transformaciones de sensor
@@ -104,12 +105,12 @@ static void sensorTask(void *arg) {
     }
 
     if (i++ % 10 == 0) {
-      ESP_LOGI(TAG,
-               "yaw: %.3f°  pitch: %.3f°  roll: %.3f°  "
-               "(yaw_rad: %.4f)",
-               imu_state.yaw_rad * (180.0f / M_PI),
-               imu_state.pitch_rad * (180.0f / M_PI),
-               imu_state.roll_rad * (180.0f / M_PI), imu_state.yaw_rad);
+      // ESP_LOGI(TAG,
+      //"yaw: %.3f°  pitch: %.3f°  roll: %.3f°  "
+      //"(yaw_rad: %.4f)",
+      // imu_state.yaw_rad * (180.0f / M_PI),
+      // imu_state.pitch_rad * (180.0f / M_PI),
+      // imu_state.roll_rad * (180.0f / M_PI), imu_state.yaw_rad);
     }
 
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -128,4 +129,17 @@ void sensorMeasureTaskStart(void) {
 
 const IMUState *imuGetState(void) { return &imu_state; }
 
-float imuGetYawRad(void) { return imu_state.yaw_rad; }
+void imuResetYawOffset(void) {
+  yaw_offset_rad = imu_state.yaw_rad;
+  ESP_LOGI(TAG, "Offset puesto en: %.3f", yaw_offset_rad * (180 / M_PI));
+}
+
+float imuGetYawRad(void) {
+  float yaw = imu_state.yaw_rad - yaw_offset_rad;
+
+  if (yaw > M_PI)
+    yaw -= 2.0f * M_PI;
+  if (yaw < -M_PI)
+    yaw += 2.0f * M_PI;
+  return yaw;
+}

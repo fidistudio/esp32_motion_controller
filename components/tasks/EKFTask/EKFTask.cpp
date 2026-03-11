@@ -104,8 +104,8 @@ static void ekfTask(void *arg) {
     ekf_state.timestamp_us = esp_timer_get_time();
     ekf_state.valid = true;
 
-    ESP_LOGD(TAG, "Pose: x=%.3f  y=%.3f  theta=%.3f rad", ekf_state.x,
-             ekf_state.y, ekf_state.theta);
+    ESP_LOGI(TAG, "Pose: x=%.3f  y=%.3f  theta=%.3f degree", ekf_state.x,
+             ekf_state.y, ekf_state.theta * (180.0f / 3.14159));
 
     vTaskDelay(period);
   }
