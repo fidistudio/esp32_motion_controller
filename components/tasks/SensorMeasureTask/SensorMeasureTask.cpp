@@ -24,18 +24,18 @@ static const char *TAG = "SensorMeasure";
  *  Estado publicado (escrito solo por sensorTask)
  * =============================================================== */
 static IMUState imu_state;
-static float yaw_offset_rad = 2.175f;
+static float yaw_offset_rad = 0.0f;
 
 /* ===============================================================
  *  Calibración
  * =============================================================== */
 static calibration_t cal = {
-    .mag_offset = {.x = -57.333984, .y = 12.632812, .z = 118.734375},
-    .mag_scale = {.x = 0.890432, .y = 1.185021, .z = 0.967977},
-    .gyro_bias_offset = {.x = -5.280568, .y = -2.082958, .z = 0.287119},
-    .accel_offset = {.x = 0.008472, .y = -0.001945, .z = -0.025929},
-    .accel_scale_lo = {.x = 1.005195, .y = 0.988864, .z = 0.998668},
-    .accel_scale_hi = {.x = -0.986930, .y = -1.004639, .z = -1.029237}};
+    .mag_offset = {.x = -56.730469, .y = 8.421875, .z = 120.480469},
+    .mag_scale = {.x = 1.040260, .y = 0.913183, .z = 1.059735},
+    .gyro_bias_offset = {.x = -5.275731, .y = -2.099989, .z = 0.294089},
+    .accel_offset = {.x = 0.035765, .y = -0.011386, .z = -0.026014},
+    .accel_scale_lo = {.x = 1.005573, .y = 0.988421, .z = 0.996858},
+    .accel_scale_hi = {.x = -0.991350, .y = -1.003926, .z = -1.034768}};
 
 /* ===============================================================
  *  Transformaciones de sensor
@@ -105,7 +105,7 @@ static void sensorTask(void *arg) {
       if (yaw < -M_PI)
         yaw += 2.0f * M_PI;
 
-      imu_state.yaw_rad = -yaw;
+      imu_state.yaw_rad = yaw;
       imu_state.pitch_rad = deg2rad_norm(pitch_deg);
       imu_state.roll_rad = deg2rad_norm(roll_deg);
       imu_state.timestamp_us = esp_timer_get_time();
@@ -114,10 +114,10 @@ static void sensorTask(void *arg) {
 
     if (i++ % 10 == 0) {
       // ESP_LOGI(TAG,
-      //        "yaw: %.3f°  pitch: %.3f°  roll: %.3f°  "
-      //      "(yaw_rad: %.4f)",
-      //    imu_state.yaw_rad * (180 / M_PI),
-      //  imu_state.pitch_rad * (180 / M_PI),
+      //"yaw: %.3f°  pitch: %.3f°  roll: %.3f°  "
+      //"(yaw_rad: %.4f)",
+      // imu_state.yaw_rad * (180 / M_PI),
+      // imu_state.pitch_rad * (180 / M_PI),
       // imu_state.roll_rad * (180 / M_PI), imu_state.yaw_rad);
     }
 
