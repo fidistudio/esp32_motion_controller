@@ -20,7 +20,7 @@ extern "C" void app_main(void) {
 
   // Inicializa task de comandos UART
   commandTaskInit();
-  // telemetryTaskStart(50);
+  telemetryTaskStart(50);
 
   // Inicia task que lee la IMU
   sensorMeasureTaskStart();
