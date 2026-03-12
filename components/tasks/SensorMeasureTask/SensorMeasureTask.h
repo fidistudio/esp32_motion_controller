@@ -20,7 +20,4 @@ void sensorMeasureTaskStart(void);
 /** Retorna puntero al estado IMU más reciente */
 const IMUState *imuGetState(void);
 
-/** Getter de conveniencia: solo el yaw en radianes [-π, π] */
-float imuGetYawRad(void);
-
 void imuResetYawOffset(void);
