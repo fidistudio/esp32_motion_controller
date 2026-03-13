@@ -14,18 +14,14 @@ WheelDriver::WheelDriver(MotorConfig motorConfig, EncoderConfig encoderConfig,
   xTaskCreatePinnedToCore(WheelDriver::calibrateTaskEntry, "CalibrateTask",
                           4096, this, 5, &calibrate_task_handle_,
                           tskNO_AFFINITY);
-
-  xTaskCreatePinnedToCore(WheelDriver::nvsTaskEntry, "NVSTask", 4096, this, 5,
+  xTaskCreatePinnedToCore(WheelDriver::nvsTaskEntry, "NvsTask", 4096, this, 5,
                           &nvs_task_handle_, tskNO_AFFINITY);
   encoder_.setDoneCallback(calibrate_task_handle_);
 }
 
+// --- Calibrate task ---
 void WheelDriver::calibrateTaskEntry(void *arg) {
   static_cast<WheelDriver *>(arg)->calibrateTaskLoop();
-}
-
-void WheelDriver::nvsTaskEntry(void *arg) {
-  static_cast<WheelDriver *>(arg)->nvsTaskLoop();
 }
 
 void WheelDriver::calibrateTaskLoop() {
@@ -40,8 +36,13 @@ void WheelDriver::calibrateTaskLoop() {
     encoder_.startCalibration();
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     motor_.stop();
-    xTaskNotifyGive(nvs_task_handle_);
+    xTaskNotifyGive(nvs_task_handle_); // hand off to NVS task
   }
+}
+
+// --- NVS task ---
+void WheelDriver::nvsTaskEntry(void *arg) {
+  static_cast<WheelDriver *>(arg)->nvsTaskLoop();
 }
 
 void WheelDriver::nvsTaskLoop() {
@@ -51,6 +52,7 @@ void WheelDriver::nvsTaskLoop() {
   }
 }
 
+// --- Public API ---
 void WheelDriver::setDuty(float new_duty) {
   motor_.setDuty(new_duty);
   if (new_duty > 0)
@@ -75,7 +77,6 @@ void WheelDriver::calibrate(Direction dir) {
     encoder_.setInverted(false);
   else
     encoder_.setInverted(true);
-
   xTaskNotifyGive(calibrate_task_handle_);
 }
 
@@ -86,4 +87,5 @@ float WheelDriver::getVelocity(VelocityUnits units) {
 }
 
 float WheelDriver::getPosition() { return encoder_.getPosition(); }
+
 void WheelDriver::resetPosition() { encoder_.resetPosition(); }
