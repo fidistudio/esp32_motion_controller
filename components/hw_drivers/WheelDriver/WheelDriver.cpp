@@ -1,6 +1,7 @@
 #include "WheelDriver.h"
 #include "LUTStore/LUTStore.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 
 WheelDriver::WheelDriver(MotorConfig motorConfig, EncoderConfig encoderConfig,
                          int8_t NUM_SECTORS, const std::string &nvs_namespace,
@@ -54,18 +55,24 @@ void WheelDriver::nvsTaskLoop() {
 
 // --- Public API ---
 void WheelDriver::setDuty(float new_duty) {
+  if (new_duty == 0) {
+    stop();
+    return;
+  }
+
+  encoder_.setEnabled(true);
   motor_.setDuty(new_duty);
+
   if (new_duty > 0)
     encoder_.setInverted(false);
-  else if (new_duty < 0)
-    encoder_.setInverted(true);
   else
-    encoder_.clearDT();
+    encoder_.setInverted(true);
 }
 
 void WheelDriver::stop() {
   motor_.stop();
   encoder_.clearDT();
+  encoder_.setEnabled(false);
   if (encoder_.isCalibrating())
     encoder_.stopCalibration();
 }
