@@ -117,7 +117,7 @@ Encoder::Encoder(gpio_num_t pulse_pin, gpio_num_t sector_pin, float (*lut)[2],
       pulse_source_(pulse_pin, sector_pin, input_queue_, NUM_SECTORS_,
                     glitch_filter_ns),
       done_task_(nullptr) {
-  xTaskCreatePinnedToCore(Encoder::taskEntry, "EncoderTask", 4096, this, 10,
+  xTaskCreatePinnedToCore(Encoder::taskEntry, "EncoderTask", 4096, this, 6,
                           &task_handle_, tskNO_AFFINITY);
 }
 
