@@ -65,10 +65,17 @@ void EncoderPulseSource::setInverted(bool inverted) {
   }
 }
 
+void EncoderPulseSource::setEnabled(bool enabled) { enabled_ = enabled; }
+
 bool IRAM_ATTR EncoderPulseSource::onPulse(pcnt_unit_handle_t,
                                            const pcnt_watch_event_data_t *,
                                            void *arg) {
   auto *self = static_cast<EncoderPulseSource *>(arg);
+
+  if (!self->enabled_) {
+    self->pulse_pcnt_.clearCount();
+    return false;
+  }
 
   int64_t now = esp_timer_get_time();
   int64_t dt = now - self->last_time_us_;
@@ -129,6 +136,7 @@ void Encoder::setInverted(bool i) {
   inverted_ = i;
   pulse_source_.setInverted(i);
 }
+void Encoder::setEnabled(bool enabled) { pulse_source_.setEnabled(enabled); }
 bool Encoder::isInverted() { return inverted_; }
 
 /* ================= Task loop ================= */

@@ -37,6 +37,7 @@ public:
                      QueueHandle_t queue, int8_t num_sectors = 15,
                      uint32_t glitch_filter_ns = 100);
   void setInverted(bool inverted);
+  void setEnabled(bool enabled);
 
 private:
   static bool IRAM_ATTR onPulse(pcnt_unit_handle_t,
@@ -47,6 +48,7 @@ private:
   QueueHandle_t queue_;
   volatile int8_t sector_;
   volatile bool inverted_;
+  volatile bool enabled_;
   int64_t last_time_us_;
   const int8_t NUM_SECTORS_;
   PCNTPulse pulse_pcnt_;
@@ -64,6 +66,7 @@ public:
   void stopCalibration();
   bool isCalibrating();
   void setInverted(bool inverted);
+  void setEnabled(bool enabled);
   bool isInverted();
 
   float getVelocity(VelocityUnits units);
