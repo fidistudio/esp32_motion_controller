@@ -131,6 +131,9 @@ void stop(void) {
 
   controller_right->reset();
   controller_left->reset();
+
+  target_speed_left_ = 0;
+  target_speed_right_ = 0;
 }
 
 void calibrate(Direction dir) {
