@@ -97,8 +97,8 @@ static void ekfTask(void *arg) {
   while (true) {
 
     /* 1. Odometría diferencial → v, ω para el predict */
-    float omega_l = getVelocityLeft(VelocityUnits::RAD_S);
-    float omega_r = getVelocityRight(VelocityUnits::RAD_S);
+    float omega_l, omega_r, pos_l, pos_r;
+    getWheelSnapshot(&omega_l, &omega_r, &pos_l, &pos_r);
 
     float v = (WHEEL_RADIUS_R * omega_r + WHEEL_RADIUS_L * omega_l) / 2.0f;
     float omega = (WHEEL_RADIUS_R * omega_r - WHEEL_RADIUS_L * omega_l) /
@@ -111,8 +111,6 @@ static void ekfTask(void *arg) {
      * (una en predict y otra aquí). La diferencia de posición es la fuente
      * más directa y menos ruidosa del desplazamiento angular.
      */
-    float pos_l = getPositionLeft();
-    float pos_r = getPositionRight();
 
     float dl =
         (pos_l - prev_pos_l) * WHEEL_RADIUS_L; // metros recorridos rueda izq
@@ -154,8 +152,8 @@ static void ekfTask(void *arg) {
     ekf_state.x = ekf.getX();
     ekf_state.y = ekf.getY();
     ekf_state.theta = ekf.getTheta();
-    ekf_state.pos_left_rad = getPositionLeft();
-    ekf_state.pos_right_rad = getPositionRight();
+    ekf_state.pos_left_rad = pos_l;
+    ekf_state.pos_right_rad = pos_r;
     ekf_state.vel_left_rads = omega_l;
     ekf_state.vel_right_rads = omega_r;
     ekf_state.dir_left_fwd = !isInvertedLeft();
