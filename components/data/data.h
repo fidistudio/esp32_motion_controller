@@ -12,6 +12,7 @@ float getVelocityLeft(VelocityUnits units);
 float getVelocityRight(VelocityUnits units);
 float getPositionLeft(void);
 float getPositionRight(void);
+void getWheelSnapshot(float *vel_l, float *vel_r, float *pos_l, float *pos_r);
 void resetPositions(void);
 bool isInvertedLeft(void);
 bool isInvertedRight(void);

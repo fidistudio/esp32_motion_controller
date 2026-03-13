@@ -152,6 +152,13 @@ float getVelocityRight(VelocityUnits units) {
 float getPositionLeft(void) { return wheel_left->getPosition(); }
 float getPositionRight(void) { return wheel_right->getPosition(); }
 
+void getWheelSnapshot(float *vel_l, float *vel_r, float *pos_l, float *pos_r) {
+  *vel_l = wheel_left->getVelocity(VelocityUnits::RAD_S);
+  *vel_r = wheel_right->getVelocity(VelocityUnits::RAD_S);
+  *pos_l = wheel_left->getPosition();
+  *pos_r = wheel_right->getPosition();
+}
+
 void resetPositions(void) {
   wheel_left->resetPosition();
   wheel_right->resetPosition();
