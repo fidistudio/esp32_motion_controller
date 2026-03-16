@@ -2,21 +2,21 @@
 #include "LUTStore/LUTStore.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
+#include "portmacro.h"
 
 WheelDriver::WheelDriver(MotorConfig motorConfig, EncoderConfig encoderConfig,
                          int8_t NUM_SECTORS, const std::string &nvs_namespace,
-                         float (*lut)[2])
+                         float (*lut)[2], BaseType_t core_id)
     : lut_(lut), motor_(motorConfig.PIN_A, motorConfig.PIN_B, motorConfig.CH_A,
                         motorConfig.CH_B, motorConfig.TIMER, motorConfig.MODE,
                         motorConfig.RESOLUTION),
       encoder_(encoderConfig.PULSE_PIN, encoderConfig.SECTOR_PIN, lut,
-               encoderConfig.GLITCH_FILTER_NS),
+               encoderConfig.GLITCH_FILTER_NS, core_id),
       lut_store_(lut, NUM_SECTORS, nvs_namespace) {
   xTaskCreatePinnedToCore(WheelDriver::calibrateTaskEntry, "CalibrateTask",
-                          4096, this, 5, &calibrate_task_handle_,
-                          tskNO_AFFINITY);
+                          4096, this, 5, &calibrate_task_handle_, core_id);
   xTaskCreatePinnedToCore(WheelDriver::nvsTaskEntry, "NvsTask", 4096, this, 5,
-                          &nvs_task_handle_, tskNO_AFFINITY);
+                          &nvs_task_handle_, core_id);
   encoder_.setDoneCallback(calibrate_task_handle_);
 }
 
@@ -30,6 +30,7 @@ void WheelDriver::calibrateTaskLoop() {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     motor_.stop();
     vTaskDelay(pdMS_TO_TICKS(500));
+    encoder_.enableForCalibration();
     if (!isInverted())
       setDuty(CALIBRATE_DUTY);
     else

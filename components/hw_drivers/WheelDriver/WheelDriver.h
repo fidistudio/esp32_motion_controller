@@ -5,6 +5,8 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
+#include "portmacro.h"
 #include <stdint.h>
 #include <string>
 
@@ -29,7 +31,7 @@ class WheelDriver {
 public:
   WheelDriver(MotorConfig motorConfig, EncoderConfig encoderConfig,
               int8_t NUM_SECTORS, const std::string &nvs_namespace,
-              float (*lut)[2]);
+              float (*lut)[2], BaseType_t core_id = tskNO_AFFINITY);
   void setDuty(float new_duty);
   void stop();
   void loadLUT();

@@ -6,6 +6,7 @@
 #include <math.h>
 
 #include "esp_log.h"
+#include "portmacro.h"
 static const char *TAG = "EncoderPCNT";
 
 /* ================= PCNT ================= */
@@ -60,12 +61,15 @@ EncoderPulseSource::EncoderPulseSource(gpio_num_t pulse_gpio,
 
 void EncoderPulseSource::setInverted(bool inverted) {
   if (inverted != inverted_) {
+    portENTER_CRITICAL(&pulse_mux_);
     sector_ = (NUM_SECTORS_ - sector_ - 1) % NUM_SECTORS_;
     inverted_ = inverted;
+    portEXIT_CRITICAL(&pulse_mux_);
   }
 }
 
 void EncoderPulseSource::setEnabled(bool enabled) { enabled_ = enabled; }
+void EncoderPulseSource::enableForCalibration() { enabled_ = true; }
 
 bool IRAM_ATTR EncoderPulseSource::onPulse(pcnt_unit_handle_t,
                                            const pcnt_watch_event_data_t *,
@@ -81,7 +85,9 @@ bool IRAM_ATTR EncoderPulseSource::onPulse(pcnt_unit_handle_t,
   int64_t dt = now - self->last_time_us_;
   self->last_time_us_ = now;
 
+  portENTER_CRITICAL_ISR(&self->pulse_mux_);
   self->sector_ = (self->sector_ + 1) % self->NUM_SECTORS_;
+  portEXIT_CRITICAL_ISR(&self->pulse_mux_);
 
   EncoderSample sample{.sector = self->sector_, .dt_us = dt};
 
@@ -99,26 +105,25 @@ bool IRAM_ATTR EncoderPulseSource::onSector0(pcnt_unit_handle_t,
                                              const pcnt_watch_event_data_t *,
                                              void *arg) {
   auto *self = static_cast<EncoderPulseSource *>(arg);
+  portENTER_CRITICAL_ISR(&self->pulse_mux_);
   self->sector_ = 0;
+  portEXIT_CRITICAL_ISR(&self->pulse_mux_);
   self->sector0_pcnt_.clearCount();
   return false;
 }
 
 /* ================= Encoder ================= */
 
-portMUX_TYPE Encoder::mux_ = portMUX_INITIALIZER_UNLOCKED;
-
 Encoder::Encoder(gpio_num_t pulse_pin, gpio_num_t sector_pin, float (*lut)[2],
-                 uint32_t glitch_filter_ns)
+                 uint32_t glitch_filter_ns, BaseType_t core_id)
     : lut_(lut), calibrating_(false), calibration_requested_(false),
-      inverted_(false), sector_(0), dt_(0), revs_(0),
-      position_rad_(0.0f), // ← nuevo: inicializar acumulador
-      input_queue_(xQueueCreate(1, sizeof(EncoderSample))),
+      inverted_(false), sector_(0), dt_(0), revs_(0), position_rad_(0.0f),
+      core_id_(core_id), input_queue_(xQueueCreate(1, sizeof(EncoderSample))),
       pulse_source_(pulse_pin, sector_pin, input_queue_, NUM_SECTORS_,
                     glitch_filter_ns),
       done_task_(nullptr) {
   xTaskCreatePinnedToCore(Encoder::taskEntry, "EncoderTask", 4096, this, 6,
-                          &task_handle_, tskNO_AFFINITY);
+                          &task_handle_, core_id);
 }
 
 /* ================= Calibración (sin cambios) ================= */
@@ -137,6 +142,7 @@ void Encoder::setInverted(bool i) {
   pulse_source_.setInverted(i);
 }
 void Encoder::setEnabled(bool enabled) { pulse_source_.setEnabled(enabled); }
+void Encoder::enableForCalibration() { pulse_source_.enableForCalibration(); }
 bool Encoder::isInverted() { return inverted_; }
 
 /* ================= Task loop ================= */
@@ -242,10 +248,17 @@ float Encoder::getVelocity(VelocityUnits units) {
   if (T <= 0.0f)
     return 0.0f;
 
+  float velocity;
   if (units == VelocityUnits::RPM)
-    return (sign * 60.0f) / (NUM_SECTORS_ * T);
+    velocity = (sign * 60.0f) / (NUM_SECTORS_ * T);
   else
-    return (sign * 2.0f * static_cast<float>(M_PI)) / (NUM_SECTORS_ * T);
+    velocity = (sign * 2.0f * static_cast<float>(M_PI)) / (NUM_SECTORS_ * T);
+
+  static constexpr float MAX_VELOCIDTY_RADS = 7.0f;
+  if (fabsf(velocity) > MAX_VELOCIDTY_RADS)
+    return MAX_VELOCIDTY_RADS;
+
+  return velocity;
 }
 
 float Encoder::getPosition() {
