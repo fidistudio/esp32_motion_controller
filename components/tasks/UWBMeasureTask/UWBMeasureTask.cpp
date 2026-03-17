@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "portmacro.h"
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -10,12 +11,14 @@
 static const char *TAG = "UWBMeasureTask";
 
 // ------------------ Configuración de antenas en el espacio ------------------
-static coord Ant1{0.1f, 0.1f, -0.38f}; // x,y,z en metros
-static coord Ant2{2.66f, 3.95f, -0.38f};
-static coord Ant3{5.56, 0.1, -0.38f};
+static coord Ant1{0.1f, 0.1f, -0.62f}; // x,y,z en metros
+static coord Ant2{2.66f, 3.95f, -0.62f};
+static coord Ant3{5.56, 0.1, -0.62f};
 
 // ------------------ Estado publicado ------------------
 static UWBState uwb_state;
+static UWBState uwb_state_copy;
+static portMUX_TYPE uwb_mux = portMUX_INITIALIZER_UNLOCKED;
 
 // ------------------ UWBDriver ------------------
 static UWBDriver uwb(UART_NUM_2, 17, 16);
@@ -84,10 +87,15 @@ static void uwbTask(void *arg) {
     // Hacer trilateración usando últimos valores válidos
     coord p = TriangularPosicion2D(last_d1, last_d2, last_d3);
 
-    uwb_state.x = p.x;
-    uwb_state.y = p.y;
-    uwb_state.valid = (last_d1 > 0.0f && last_d2 > 0.0f && last_d3 > 0.0f);
-    uwb_state.timestamp_us = esp_timer_get_time();
+    UWBState tmp;
+    tmp.x = p.x;
+    tmp.y = p.y;
+    tmp.valid = (last_d1 > 0.0f && last_d2 > 0.0f && last_d3 > 0.0f);
+    tmp.timestamp_us = esp_timer_get_time();
+
+    portENTER_CRITICAL(&uwb_mux);
+    uwb_state = tmp;
+    portEXIT_CRITICAL(&uwb_mux);
 
     vTaskDelay(period);
 
@@ -100,8 +108,13 @@ static void uwbTask(void *arg) {
 
 // ------------------ Inicializador ------------------
 void uwbMeasureTaskStart(uint32_t period_ms) {
-  xTaskCreate(uwbTask, "UWBTask", 4096, (void *)period_ms, 5, NULL);
+  xTaskCreate(uwbTask, "UWBTask", 4096, (void *)period_ms, 6, NULL);
 }
 
 // ------------------ Getter de estado ------------------
-const UWBState *uwbGetState() { return &uwb_state; }
+const UWBState *uwbGetState() {
+  portENTER_CRITICAL(&uwb_mux);
+  uwb_state_copy = uwb_state;
+  portENTER_CRITICAL(&uwb_mux);
+  return &uwb_state_copy;
+}

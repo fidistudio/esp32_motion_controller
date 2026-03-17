@@ -46,7 +46,7 @@ void PWM::setDuty(float new_duty) {
 
   float mapped_duty;
 
-  const float min_duty = 0.15f;
+  const float min_duty = 0.0f;
 
   if (new_duty == 0.0f) {
     mapped_duty = 0.0f; // motor detenido

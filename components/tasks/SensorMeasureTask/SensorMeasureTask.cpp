@@ -1,12 +1,11 @@
 #include "SensorMeasureTask.h"
-
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "portmacro.h"
 #include <cmath>
 #include <cstddef>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,6 +23,8 @@ static const char *TAG = "SensorMeasure";
  *  Estado publicado (escrito solo por sensorTask)
  * =============================================================== */
 static IMUState imu_state;
+static IMUState imu_state_copy;
+static portMUX_TYPE imu_mux = portMUX_INITIALIZER_UNLOCKED;
 static float yaw_offset_rad = 0.0f;
 
 /* ===============================================================
@@ -38,20 +39,13 @@ static calibration_t cal = {
     .accel_scale_hi = {.x = -0.991350, .y = -1.003926, .z = -1.034768}};
 
 /* ===============================================================
- *  Transformaciones de sensor
+ *  Transformaciones de ejes
  * =============================================================== */
 static void transform_accel_gyro(vector_t *v) {
   float x = v->x, y = v->y, z = v->z;
   v->x = -x;
   v->y = -z;
   v->z = -y;
-}
-
-static void transform_mag(vector_t *v) {
-  float x = v->x, y = v->y, z = v->z;
-  v->x = -y;
-  v->y = z;
-  v->z = -x;
 }
 
 /* ===============================================================
@@ -76,52 +70,77 @@ static void sensorTask(void *arg) {
   calibrate_mag();
 #else
   i2c_mpu9250_init(&cal);
-  ahrs_init(SAMPLE_FREQ_Hz, 0.8f);
 
-  uint64_t i = 0;
-
-  while (true) {
+  /* --- Inicializar cuaternión solo con acelerómetro (sin mag) ---
+   * Beta alto (0.5) para convergencia rápida, luego restaurar a 0.05
+   * El yaw inicial será 0 — sin magnetómetro no hay referencia de norte
+   */
+  {
     vector_t va, vg, vm;
     ESP_ERROR_CHECK(get_accel_gyro_mag(&va, &vg, &vm));
+    transform_accel_gyro(&va);
 
+    ahrs_init(SAMPLE_FREQ_Hz, 0.5f);
+    for (int k = 0; k < 200; k++) {
+      ahrs_update(0.0f, 0.0f, 0.0f, va.x, va.y, va.z, 0.0f, 0.0f, 0.0f);
+    }
+    ahrs_init(SAMPLE_FREQ_Hz, 0.05f);
+  }
+
+  uint64_t i = 0;
+  while (true) {
+    vector_t va, vg;
+
+    /* --- Leer acelerómetro y giroscopio (mag ignorado) --- */
+    {
+      vector_t vm_unused;
+      ESP_ERROR_CHECK(get_accel_gyro_mag(&va, &vg, &vm_unused));
+    }
+
+    /* --- Transformar ejes --- */
     transform_accel_gyro(&va);
     transform_accel_gyro(&vg);
-    transform_mag(&vm);
 
+    /* --- Madgwick IMU — sin magnetómetro --- */
     ahrs_update(DEG2RAD(vg.x), DEG2RAD(vg.y), DEG2RAD(vg.z), va.x, va.y, va.z,
-                vm.x, vm.y, vm.z);
+                0.0f, 0.0f, 0.0f);
 
     /* --- Publicar estado IMU --- */
     {
       float yaw_deg, pitch_deg, roll_deg;
       ahrs_get_euler_in_degrees(&yaw_deg, &pitch_deg, &roll_deg);
 
-      // Conversión a radianes y normalización [-π, π]
-      float yaw;
-      yaw = deg2rad_norm(yaw_deg) - yaw_offset_rad;
-
+      float yaw = deg2rad_norm(yaw_deg) - yaw_offset_rad;
       if (yaw > M_PI)
         yaw -= 2.0f * M_PI;
       if (yaw < -M_PI)
         yaw += 2.0f * M_PI;
 
-      imu_state.yaw_rad = yaw;
-      imu_state.pitch_rad = deg2rad_norm(pitch_deg);
-      imu_state.roll_rad = deg2rad_norm(roll_deg);
-      imu_state.timestamp_us = esp_timer_get_time();
-      imu_state.valid = true;
+      IMUState tmp;
+      tmp.yaw_rad = yaw;
+      tmp.pitch_rad = deg2rad_norm(pitch_deg);
+      tmp.roll_rad = deg2rad_norm(roll_deg);
+      tmp.gyro_z_rads = DEG2RAD(vg.z);
+      tmp.timestamp_us = esp_timer_get_time();
+      tmp.valid = true;
+
+      portENTER_CRITICAL(&imu_mux);
+      imu_state = tmp;
+      portEXIT_CRITICAL(&imu_mux);
+
+      /* --- Log cada 10 muestras --- */
+      if (i++ % 10 == 0) {
+        float temp;
+        ESP_ERROR_CHECK(get_temperature_celsius(&temp));
+        ESP_LOGI(TAG,
+                 "heading: %2.3f°, pitch: %2.3f°, roll: %2.3f°, Temp %2.3f°C",
+                 tmp.yaw_rad * (180.0f / M_PI), tmp.pitch_rad * (180.0f / M_PI),
+                 tmp.roll_rad * (180.0f / M_PI), temp);
+        vTaskDelay(0);
+      }
     }
 
-    if (i++ % 10 == 0) {
-      // ESP_LOGI(TAG,
-      //"yaw: %.3f°  pitch: %.3f°  roll: %.3f°  "
-      //"(yaw_rad: %.4f)",
-      // imu_state.yaw_rad * (180 / M_PI),
-      // imu_state.pitch_rad * (180 / M_PI),
-      // imu_state.roll_rad * (180 / M_PI), imu_state.yaw_rad);
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(10));
+    pause();
   }
 #endif
   vTaskDelete(NULL);
@@ -130,14 +149,20 @@ static void sensorTask(void *arg) {
 /* ===============================================================
  *  API pública
  * =============================================================== */
-
 void sensorMeasureTaskStart(void) {
-  xTaskCreate(sensorTask, "sensorTask", 4096, NULL, 10, NULL);
+  xTaskCreate(sensorTask, "sensorTask", 4096, NULL, 6, NULL);
 }
 
-const IMUState *imuGetState(void) { return &imu_state; }
+const IMUState *imuGetState(void) {
+  portENTER_CRITICAL(&imu_mux);
+  imu_state_copy = imu_state;
+  portEXIT_CRITICAL(&imu_mux);
+  return &imu_state_copy;
+}
 
 void imuResetYawOffset(void) {
-  yaw_offset_rad = imu_state.yaw_rad;
-  ESP_LOGI(TAG, "Offset puesto en: %.3f", yaw_offset_rad * (180 / M_PI));
+  const IMUState *s = imuGetState();
+  yaw_offset_rad = s->yaw_rad + yaw_offset_rad;
+  ESP_LOGI(TAG, "Offset puesto en: %.3f rad (%.3f°)", yaw_offset_rad,
+           yaw_offset_rad * (180.0f / M_PI));
 }

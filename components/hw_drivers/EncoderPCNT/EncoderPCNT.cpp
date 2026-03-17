@@ -6,12 +6,14 @@
 #include <math.h>
 
 #include "esp_log.h"
+#include "portmacro.h"
 static const char *TAG = "EncoderPCNT";
 
 /* ================= PCNT ================= */
 
 PCNTPulse::PCNTPulse(gpio_num_t pulse_gpio, isr_cb_t callback,
                      void *callback_arg, uint32_t glitch_filter_ns) {
+  ESP_LOGI("PCNTPulse", "Inicializando PCNT en GPIO %d", pulse_gpio);
   pcnt_unit_config_t unit_cfg = {};
   unit_cfg.low_limit = -10;
   unit_cfg.high_limit = 10;
@@ -60,21 +62,33 @@ EncoderPulseSource::EncoderPulseSource(gpio_num_t pulse_gpio,
 
 void EncoderPulseSource::setInverted(bool inverted) {
   if (inverted != inverted_) {
+    portENTER_CRITICAL(&pulse_mux_);
     sector_ = (NUM_SECTORS_ - sector_ - 1) % NUM_SECTORS_;
     inverted_ = inverted;
+    portEXIT_CRITICAL(&pulse_mux_);
   }
 }
+
+void EncoderPulseSource::setEnabled(bool enabled) { enabled_ = enabled; }
+void EncoderPulseSource::enableForCalibration() { enabled_ = true; }
 
 bool IRAM_ATTR EncoderPulseSource::onPulse(pcnt_unit_handle_t,
                                            const pcnt_watch_event_data_t *,
                                            void *arg) {
   auto *self = static_cast<EncoderPulseSource *>(arg);
 
+  if (!self->enabled_) {
+    self->pulse_pcnt_.clearCount();
+    return false;
+  }
+
   int64_t now = esp_timer_get_time();
   int64_t dt = now - self->last_time_us_;
   self->last_time_us_ = now;
 
+  portENTER_CRITICAL_ISR(&self->pulse_mux_);
   self->sector_ = (self->sector_ + 1) % self->NUM_SECTORS_;
+  portEXIT_CRITICAL_ISR(&self->pulse_mux_);
 
   EncoderSample sample{.sector = self->sector_, .dt_us = dt};
 
@@ -92,26 +106,25 @@ bool IRAM_ATTR EncoderPulseSource::onSector0(pcnt_unit_handle_t,
                                              const pcnt_watch_event_data_t *,
                                              void *arg) {
   auto *self = static_cast<EncoderPulseSource *>(arg);
+  portENTER_CRITICAL_ISR(&self->pulse_mux_);
   self->sector_ = 0;
+  portEXIT_CRITICAL_ISR(&self->pulse_mux_);
   self->sector0_pcnt_.clearCount();
   return false;
 }
 
 /* ================= Encoder ================= */
 
-portMUX_TYPE Encoder::mux_ = portMUX_INITIALIZER_UNLOCKED;
-
 Encoder::Encoder(gpio_num_t pulse_pin, gpio_num_t sector_pin, float (*lut)[2],
-                 uint32_t glitch_filter_ns)
+                 uint32_t glitch_filter_ns, BaseType_t core_id)
     : lut_(lut), calibrating_(false), calibration_requested_(false),
-      inverted_(false), sector_(0), dt_(0), revs_(0),
-      position_rad_(0.0f), // ← nuevo: inicializar acumulador
-      input_queue_(xQueueCreate(1, sizeof(EncoderSample))),
+      inverted_(false), sector_(0), dt_(0), revs_(0), position_rad_(0.0f),
+      core_id_(core_id), input_queue_(xQueueCreate(1, sizeof(EncoderSample))),
       pulse_source_(pulse_pin, sector_pin, input_queue_, NUM_SECTORS_,
                     glitch_filter_ns),
       done_task_(nullptr) {
-  xTaskCreatePinnedToCore(Encoder::taskEntry, "EncoderTask", 4096, this, 10,
-                          &task_handle_, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(Encoder::taskEntry, "EncoderTask", 4096, this, 6,
+                          &task_handle_, core_id);
 }
 
 /* ================= Calibración (sin cambios) ================= */
@@ -129,6 +142,8 @@ void Encoder::setInverted(bool i) {
   inverted_ = i;
   pulse_source_.setInverted(i);
 }
+void Encoder::setEnabled(bool enabled) { pulse_source_.setEnabled(enabled); }
+void Encoder::enableForCalibration() { pulse_source_.enableForCalibration(); }
 bool Encoder::isInverted() { return inverted_; }
 
 /* ================= Task loop ================= */
@@ -162,7 +177,7 @@ void Encoder::taskLoop() {
 
 void Encoder::calibrateStep(const EncoderSample &sample) {
   int64_t dt = sample.dt_us;
-  int8_t sector = sample.sector;
+  int8_t sector = (sample.sector - 1 + NUM_SECTORS_) % NUM_SECTORS_;
 
   if (sector == 0) {
     if (calibration_requested_ && !calibrating_) {
@@ -224,7 +239,7 @@ float Encoder::getVelocity(VelocityUnits units) {
 
   portENTER_CRITICAL(&mux_);
   dt = dt_;
-  sector = sector_;
+  sector = (sector_ - 1 + NUM_SECTORS_) % NUM_SECTORS_;
   portEXIT_CRITICAL(&mux_);
 
   float correction = 1.0f / (lut_[sector][inverted_] / 100.0f);

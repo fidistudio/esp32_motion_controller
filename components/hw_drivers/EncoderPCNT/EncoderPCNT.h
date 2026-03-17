@@ -2,7 +2,9 @@
 #include "driver/gpio.h"
 #include "driver/pulse_cnt.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/queue.h"
+#include "portmacro.h"
 #include <stdint.h>
 
 /* ================= structs ================= */
@@ -37,6 +39,8 @@ public:
                      QueueHandle_t queue, int8_t num_sectors = 15,
                      uint32_t glitch_filter_ns = 100);
   void setInverted(bool inverted);
+  void setEnabled(bool enabled);
+  void enableForCalibration();
 
 private:
   static bool IRAM_ATTR onPulse(pcnt_unit_handle_t,
@@ -47,10 +51,12 @@ private:
   QueueHandle_t queue_;
   volatile int8_t sector_;
   volatile bool inverted_;
+  volatile bool enabled_;
   int64_t last_time_us_;
   const int8_t NUM_SECTORS_;
   PCNTPulse pulse_pcnt_;
   PCNTPulse sector0_pcnt_;
+  portMUX_TYPE pulse_mux_ = portMUX_INITIALIZER_UNLOCKED;
 };
 
 /* ================= Encoder ================= */
@@ -58,12 +64,15 @@ private:
 class Encoder {
 public:
   Encoder(gpio_num_t pulse_pin, gpio_num_t sector_pin, float (*lut)[2],
-          uint32_t glitch_filter_ns = 1000);
+          uint32_t glitch_filter_ns = 1000,
+          BaseType_t core_id = tskNO_AFFINITY);
 
   void startCalibration();
   void stopCalibration();
   bool isCalibrating();
   void setInverted(bool inverted);
+  void setEnabled(bool enabled);
+  void enableForCalibration();
   bool isInverted();
 
   float getVelocity(VelocityUnits units);
@@ -108,6 +117,7 @@ private:
 
   // Posición angular acumulada (pulsos × RAD_PER_PULSE, con signo)
   float position_rad_;
+  BaseType_t core_id_;
 
   int64_t sector_time[NUM_SECTORS_][MAX_CALIBRATION_REVS_];
 
@@ -121,5 +131,5 @@ private:
   TaskHandle_t task_handle_;
   TaskHandle_t done_task_;
 
-  static portMUX_TYPE mux_;
+  portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
 };

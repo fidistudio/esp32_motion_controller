@@ -29,7 +29,7 @@ static void controlTask(void *arg) {
 }
 
 TaskHandle_t controlTaskStart(void) {
-  xTaskCreate(controlTask, "controlTask", 3072, nullptr, 5,
+  xTaskCreate(controlTask, "controlTask", 3072, nullptr, 7,
               &control_task_handle);
 
   ESP_LOGI(TAG, "ControlTask iniciada");

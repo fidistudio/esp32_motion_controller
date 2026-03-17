@@ -1,4 +1,5 @@
 #include "UARTCommandTask.h"
+#include "EncoderPCNT.h"
 #include "SensorMeasureTask/SensorMeasureTask.h"
 #include "TimerNotifyTask/TimerNotifyTask.h"
 #include "WheelDriver/WheelDriver.h"
@@ -53,6 +54,7 @@ static void UARTCommandTask(void *arg) {
             }
           }
           // ===== TWIST linear angular =====
+          // ===== TWIST linear angular =====
           else if (strncasecmp(line_buf, "twist:", 6) == 0) {
             char *arg = line_buf + 6;
             while (*arg == ' ')
@@ -64,13 +66,9 @@ static void UARTCommandTask(void *arg) {
             if (parsed != 2) {
               ESP_LOGW(TAG, "Formato inválido. Use: twist: <linear> <angular>");
             } else {
-              if (is_timer_enabled()) {
-                ESP_LOGW(TAG, "Timer ya habilitado");
-              } else {
-                timer_notify_start();
-                set_timer_state(true);
-              }
               setTargetSpeed(linear, angular);
+              timer_notify_start();
+              set_timer_state(true);
               ESP_LOGI(TAG, "TWIST recibido v=%.3f m/s w=%.3f rad/s", linear,
                        angular);
             }
@@ -82,7 +80,6 @@ static void UARTCommandTask(void *arg) {
               timer_notify_stop();
               set_timer_state(false);
             }
-            vTaskDelay(pdMS_TO_TICKS(15));
             stop();
           }
           // ===== CALIBRATE =====
