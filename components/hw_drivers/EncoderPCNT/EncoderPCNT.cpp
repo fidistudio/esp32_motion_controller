@@ -13,6 +13,7 @@ static const char *TAG = "EncoderPCNT";
 
 PCNTPulse::PCNTPulse(gpio_num_t pulse_gpio, isr_cb_t callback,
                      void *callback_arg, uint32_t glitch_filter_ns) {
+  ESP_LOGI("PCNTPulse", "Inicializando PCNT en GPIO %d", pulse_gpio);
   pcnt_unit_config_t unit_cfg = {};
   unit_cfg.low_limit = -10;
   unit_cfg.high_limit = 10;
@@ -176,7 +177,7 @@ void Encoder::taskLoop() {
 
 void Encoder::calibrateStep(const EncoderSample &sample) {
   int64_t dt = sample.dt_us;
-  int8_t sector = sample.sector;
+  int8_t sector = (sample.sector - 1 + NUM_SECTORS_) % NUM_SECTORS_;
 
   if (sector == 0) {
     if (calibration_requested_ && !calibrating_) {
@@ -238,7 +239,7 @@ float Encoder::getVelocity(VelocityUnits units) {
 
   portENTER_CRITICAL(&mux_);
   dt = dt_;
-  sector = sector_;
+  sector = (sector_ - 1 + NUM_SECTORS_) % NUM_SECTORS_;
   portEXIT_CRITICAL(&mux_);
 
   float correction = 1.0f / (lut_[sector][inverted_] / 100.0f);
@@ -248,17 +249,10 @@ float Encoder::getVelocity(VelocityUnits units) {
   if (T <= 0.0f)
     return 0.0f;
 
-  float velocity;
   if (units == VelocityUnits::RPM)
-    velocity = (sign * 60.0f) / (NUM_SECTORS_ * T);
+    return (sign * 60.0f) / (NUM_SECTORS_ * T);
   else
-    velocity = (sign * 2.0f * static_cast<float>(M_PI)) / (NUM_SECTORS_ * T);
-
-  static constexpr float MAX_VELOCIDTY_RADS = 7.0f;
-  if (fabsf(velocity) > MAX_VELOCIDTY_RADS)
-    return MAX_VELOCIDTY_RADS;
-
-  return velocity;
+    return (sign * 2.0f * static_cast<float>(M_PI)) / (NUM_SECTORS_ * T);
 }
 
 float Encoder::getPosition() {
