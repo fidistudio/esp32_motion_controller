@@ -6,16 +6,21 @@
 
 WheelDriver::WheelDriver(MotorConfig motorConfig, EncoderConfig encoderConfig,
                          int8_t NUM_SECTORS, const std::string &nvs_namespace,
-                         float (*lut)[2], BaseType_t core_id)
-    : lut_(lut), motor_(motorConfig.PIN_A, motorConfig.PIN_B, motorConfig.CH_A,
-                        motorConfig.CH_B, motorConfig.TIMER, motorConfig.MODE,
-                        motorConfig.RESOLUTION),
+                         float (*lut)[2], BaseType_t core_id, const char *id)
+    : id_(id), lut_(lut),
+      motor_(motorConfig.PIN_A, motorConfig.PIN_B, motorConfig.CH_A,
+             motorConfig.CH_B, motorConfig.TIMER, motorConfig.MODE,
+             motorConfig.RESOLUTION),
       encoder_(encoderConfig.PULSE_PIN, encoderConfig.SECTOR_PIN, lut,
                encoderConfig.GLITCH_FILTER_NS, core_id),
       lut_store_(lut, NUM_SECTORS, nvs_namespace) {
-  xTaskCreatePinnedToCore(WheelDriver::calibrateTaskEntry, "CalibrateTask",
-                          4096, this, 5, &calibrate_task_handle_, core_id);
-  xTaskCreatePinnedToCore(WheelDriver::nvsTaskEntry, "NvsTask", 4096, this, 5,
+  char task_name[24];
+  snprintf(task_name, sizeof(task_name), "CalibrateTask_%s", id_);
+  xTaskCreatePinnedToCore(WheelDriver::calibrateTaskEntry, task_name, 4096,
+                          this, 5, &calibrate_task_handle_, core_id);
+
+  snprintf(task_name, sizeof(task_name), "NvsTask_%s", id_);
+  xTaskCreatePinnedToCore(WheelDriver::nvsTaskEntry, task_name, 4096, this, 5,
                           &nvs_task_handle_, core_id);
   encoder_.setDoneCallback(calibrate_task_handle_);
 }

@@ -27,5 +27,6 @@ static void telemetryTask(void *arg) {
 }
 
 void telemetryTaskStart(uint32_t period_ms) {
-  xTaskCreate(telemetryTask, "TelemetryTask", 3072, (void *)period_ms, 4, NULL);
+  xTaskCreatePinnedToCore(telemetryTask, "TelemetryTask", 3072,
+                          (void *)period_ms, 4, NULL, 0);
 }

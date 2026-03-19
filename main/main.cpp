@@ -11,6 +11,12 @@ extern "C" void app_main(void) {
   // Inicialización de datos globales
   dataInit();
 
+  // Inicia task que lee la IMU
+  // sensorMeasureTaskStart();
+
+  // Task RYUW
+  // uwbMeasureTaskStart();
+
   // Inicia la task de control y obtiene su handle
   TaskHandle_t control_task_handle = controlTaskStart();
 
@@ -20,14 +26,8 @@ extern "C" void app_main(void) {
 
   // Inicializa task de comandos UART
   commandTaskInit();
-  telemetryTaskStart(50);
-
-  // Inicia task que lee la IMU
-  sensorMeasureTaskStart();
-
-  // Task RYUW
-  uwbMeasureTaskStart();
+  // telemetryTaskStart(50);
 
   // Task EKF
-  ekfTaskStart(50);
+  // ekfTaskStart(50);
 }

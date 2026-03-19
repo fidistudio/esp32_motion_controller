@@ -132,6 +132,10 @@ static void UARTCommandTask(void *arg) {
           line_overflow = true;
       }
     }
+    // float vel_izq = getVelocityLeft(VelocityUnits::RPM);
+    // float vel_der = getVelocityRight(VelocityUnits::RPM);
+    //
+    // ESP_LOGI(TAG, "vel_izq: %.3f vel_der: %.3f", vel_izq, vel_der);
   }
 }
 
@@ -149,5 +153,6 @@ void commandTaskInit(void) {
   uart_set_pin(UART_PORT, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE,
                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
-  xTaskCreate(UARTCommandTask, "uart_deco_task", 4096, NULL, 5, NULL);
+  xTaskCreatePinnedToCore(UARTCommandTask, "uart_deco_task", 4096, NULL, 5,
+                          NULL, 0);
 }

@@ -31,7 +31,7 @@ class WheelDriver {
 public:
   WheelDriver(MotorConfig motorConfig, EncoderConfig encoderConfig,
               int8_t NUM_SECTORS, const std::string &nvs_namespace,
-              float (*lut)[2], BaseType_t core_id = tskNO_AFFINITY);
+              float (*lut)[2], BaseType_t core_id, const char *id);
   void setDuty(float new_duty);
   void stop();
   void loadLUT();
@@ -42,6 +42,7 @@ public:
   void resetPosition();
 
 private:
+  const char *id_;
   float (*lut_)[2];
   Motor motor_;
   Encoder encoder_;

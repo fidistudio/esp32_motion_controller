@@ -108,13 +108,14 @@ static void uwbTask(void *arg) {
 
 // ------------------ Inicializador ------------------
 void uwbMeasureTaskStart(uint32_t period_ms) {
-  xTaskCreate(uwbTask, "UWBTask", 4096, (void *)period_ms, 6, NULL);
+  xTaskCreatePinnedToCore(uwbTask, "UWBTask", 4096, (void *)period_ms, 6, NULL,
+                          0);
 }
 
 // ------------------ Getter de estado ------------------
 const UWBState *uwbGetState() {
   portENTER_CRITICAL(&uwb_mux);
   uwb_state_copy = uwb_state;
-  portENTER_CRITICAL(&uwb_mux);
+  portEXIT_CRITICAL(&uwb_mux);
   return &uwb_state_copy;
 }

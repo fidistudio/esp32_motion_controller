@@ -150,7 +150,7 @@ static void sensorTask(void *arg) {
  *  API pública
  * =============================================================== */
 void sensorMeasureTaskStart(void) {
-  xTaskCreate(sensorTask, "sensorTask", 4096, NULL, 6, NULL);
+  xTaskCreatePinnedToCore(sensorTask, "sensorTask", 4096, NULL, 6, NULL, 0);
 }
 
 const IMUState *imuGetState(void) {

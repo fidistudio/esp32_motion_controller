@@ -6,6 +6,7 @@
 #include <math.h>
 
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "portmacro.h"
 static const char *TAG = "EncoderPCNT";
 
@@ -55,29 +56,43 @@ EncoderPulseSource::EncoderPulseSource(gpio_num_t pulse_gpio,
                                        gpio_num_t sector0_gpio,
                                        QueueHandle_t queue, int8_t num_sectors,
                                        uint32_t glitch_filter_ns)
-    : queue_(queue), sector_(0), inverted_(false), last_time_us_(0),
-      NUM_SECTORS_(num_sectors),
+    : queue_(queue), sector_(0), inverted_(false), enabled_(false),
+      last_time_us_(0), NUM_SECTORS_(num_sectors),
       pulse_pcnt_(pulse_gpio, onPulse, this, glitch_filter_ns),
       sector0_pcnt_(sector0_gpio, onSector0, this, glitch_filter_ns) {}
 
 void EncoderPulseSource::setInverted(bool inverted) {
   if (inverted != inverted_) {
     portENTER_CRITICAL(&pulse_mux_);
-    sector_ = (NUM_SECTORS_ - sector_ - 1) % NUM_SECTORS_;
+    sector_ = (NUM_SECTORS_ - sector_) % NUM_SECTORS_;
     inverted_ = inverted;
     portEXIT_CRITICAL(&pulse_mux_);
   }
 }
 
-void EncoderPulseSource::setEnabled(bool enabled) { enabled_ = enabled; }
-void EncoderPulseSource::enableForCalibration() { enabled_ = true; }
+void EncoderPulseSource::setEnabled(bool enabled) {
+  portENTER_CRITICAL(&pulse_mux_);
+  enabled_ = enabled;
+  portEXIT_CRITICAL(&pulse_mux_);
+}
+void EncoderPulseSource::enableForCalibration() {
+  portENTER_CRITICAL(&pulse_mux_);
+  enabled_ = true;
+  portEXIT_CRITICAL(&pulse_mux_);
+}
 
 bool IRAM_ATTR EncoderPulseSource::onPulse(pcnt_unit_handle_t,
                                            const pcnt_watch_event_data_t *,
                                            void *arg) {
   auto *self = static_cast<EncoderPulseSource *>(arg);
 
-  if (!self->enabled_) {
+  // esp_rom_printf("Pulso\n");
+
+  portENTER_CRITICAL_ISR(&self->pulse_mux_);
+  bool enabled = self->enabled_;
+  portEXIT_CRITICAL_ISR(&self->pulse_mux_);
+
+  if (!enabled) {
     self->pulse_pcnt_.clearCount();
     return false;
   }
@@ -106,6 +121,8 @@ bool IRAM_ATTR EncoderPulseSource::onSector0(pcnt_unit_handle_t,
                                              const pcnt_watch_event_data_t *,
                                              void *arg) {
   auto *self = static_cast<EncoderPulseSource *>(arg);
+
+  // esp_rom_printf("Reset\n");
   portENTER_CRITICAL_ISR(&self->pulse_mux_);
   self->sector_ = 0;
   portEXIT_CRITICAL_ISR(&self->pulse_mux_);
@@ -167,6 +184,9 @@ void Encoder::taskLoop() {
         position_rad_ += inverted_ ? -RAD_PER_PULSE_ : RAD_PER_PULSE_;
 
         portEXIT_CRITICAL(&mux_);
+
+        // esp_rom_printf("sector=%d dt=%lld us\n", sample.sector,
+        // sample.dt_us);
       }
     }
   }
