@@ -31,22 +31,12 @@ static float yaw_offset_rad = 0.0f;
  *  Calibración
  * =============================================================== */
 static calibration_t cal = {
-    .mag_offset = {.x = -56.730469, .y = 8.421875, .z = 120.480469},
-    .mag_scale = {.x = 1.040260, .y = 0.913183, .z = 1.059735},
-    .gyro_bias_offset = {.x = -5.275731, .y = -2.099989, .z = 0.294089},
-    .accel_offset = {.x = 0.035765, .y = -0.011386, .z = -0.026014},
-    .accel_scale_lo = {.x = 1.005573, .y = 0.988421, .z = 0.996858},
-    .accel_scale_hi = {.x = -0.991350, .y = -1.003926, .z = -1.034768}};
-
-/* ===============================================================
- *  Transformaciones de ejes
- * =============================================================== */
-static void transform_accel_gyro(vector_t *v) {
-  float x = v->x, y = v->y, z = v->z;
-  v->x = -x;
-  v->y = -z;
-  v->z = -y;
-}
+    .mag_offset = {.x = -62.765625, .y = 22.859375, .z = 97.199219},
+    .mag_scale = {.x = 1.056077, .y = 0.976732, .z = 0.971556},
+    .gyro_bias_offset = {.x = -5.176833, .y = -2.077277, .z = 0.325611},
+    .accel_offset = {.x = 0.165891, .y = -0.005169, .z = 0.021756},
+    .accel_scale_lo = {.x = 1.007532, .y = 0.987073, .z = 0.999830},
+    .accel_scale_hi = {.x = -0.681083, .y = -1.005608, .z = -1.032582}};
 
 /* ===============================================================
  *  Helper: grados → radianes normalizados a [-π, π]
@@ -71,74 +61,73 @@ static void sensorTask(void *arg) {
 #else
   i2c_mpu9250_init(&cal);
 
-  /* --- Inicializar cuaternión solo con acelerómetro (sin mag) ---
-   * Beta alto (0.5) para convergencia rápida, luego restaurar a 0.05
-   * El yaw inicial será 0 — sin magnetómetro no hay referencia de norte
-   */
-  {
-    vector_t va, vg, vm;
-    ESP_ERROR_CHECK(get_accel_gyro_mag(&va, &vg, &vm));
-    transform_accel_gyro(&va);
+  // Alpha para complementary filter: cuánto confías en el giroscopio
+  // 0.98 = 98% gyro + 2% accel para corregir drift en pitch/roll
+  static constexpr float ALPHA = 0.98f;
 
-    ahrs_init(SAMPLE_FREQ_Hz, 0.5f);
-    for (int k = 0; k < 200; k++) {
-      ahrs_update(0.0f, 0.0f, 0.0f, va.x, va.y, va.z, 0.0f, 0.0f, 0.0f);
-    }
-    ahrs_init(SAMPLE_FREQ_Hz, 0.05f);
-  }
+  float roll_deg = 0.0f;
+  float pitch_deg = 0.0f;
+  float yaw_deg = 0.0f;
+  int64_t last_time_us = esp_timer_get_time();
 
   uint64_t i = 0;
   while (true) {
-    vector_t va, vg;
+    vector_t va, vg, vm;
+    ESP_ERROR_CHECK(get_accel_gyro_mag(&va, &vg, &vm));
 
-    /* --- Leer acelerómetro y giroscopio (mag ignorado) --- */
-    {
-      vector_t vm_unused;
-      ESP_ERROR_CHECK(get_accel_gyro_mag(&va, &vg, &vm_unused));
-    }
+    // dt real entre muestras
+    int64_t now_us = esp_timer_get_time();
+    float dt = (now_us - last_time_us) * 1e-6f;
+    last_time_us = now_us;
 
-    /* --- Transformar ejes --- */
-    transform_accel_gyro(&va);
-    transform_accel_gyro(&vg);
+    // Integración del giroscopio (vg ya está en deg/s tras calibración)
+    static constexpr float GYRO_THRESHOLD = 0.5f; // deg/s
 
-    /* --- Madgwick IMU — sin magnetómetro --- */
-    ahrs_update(DEG2RAD(vg.x), DEG2RAD(vg.y), DEG2RAD(vg.z), va.x, va.y, va.z,
-                0.0f, 0.0f, 0.0f);
+    if (fabsf(vg.x) < GYRO_THRESHOLD)
+      vg.x = 0.0f;
+    if (fabsf(vg.y) < GYRO_THRESHOLD)
+      vg.y = 0.0f;
+    if (fabsf(vg.z) < GYRO_THRESHOLD)
+      vg.z = 0.0f;
 
-    /* --- Publicar estado IMU --- */
-    {
-      float yaw_deg, pitch_deg, roll_deg;
-      ahrs_get_euler_in_degrees(&yaw_deg, &pitch_deg, &roll_deg);
+    roll_deg += vg.x * dt;
+    pitch_deg += vg.y * dt;
+    yaw_deg += vg.z * dt;
 
-      float yaw = deg2rad_norm(yaw_deg) - yaw_offset_rad;
-      if (yaw > M_PI)
-        yaw -= 2.0f * M_PI;
-      if (yaw < -M_PI)
-        yaw += 2.0f * M_PI;
+    // Corrección de pitch y roll con acelerómetro
+    // va está en g — atan2 da el ángulo de inclinación
+    float accel_roll = atan2f(va.y, va.z) * (180.0f / M_PI);
+    float accel_pitch =
+        atan2f(-va.x, sqrtf(va.y * va.y + va.z * va.z)) * (180.0f / M_PI);
 
-      IMUState tmp;
-      tmp.yaw_rad = yaw;
-      tmp.pitch_rad = deg2rad_norm(pitch_deg);
-      tmp.roll_rad = deg2rad_norm(roll_deg);
-      tmp.gyro_z_rads = DEG2RAD(vg.z);
-      tmp.timestamp_us = esp_timer_get_time();
-      tmp.valid = true;
+    // Complementary filter: fusiona gyro (rápido) con accel (sin drift)
+    roll_deg = ALPHA * roll_deg + (1.0f - ALPHA) * accel_roll;
+    pitch_deg = ALPHA * pitch_deg + (1.0f - ALPHA) * accel_pitch;
+    // yaw no tiene corrección sin magnetómetro — driftea con el tiempo
 
-      portENTER_CRITICAL(&imu_mux);
-      imu_state = tmp;
-      portEXIT_CRITICAL(&imu_mux);
+    // Publicar estado
+    float yaw = deg2rad_norm(yaw_deg) - yaw_offset_rad;
+    if (yaw > M_PI)
+      yaw -= 2.0f * M_PI;
+    if (yaw < -M_PI)
+      yaw += 2.0f * M_PI;
 
-      /* --- Log cada 10 muestras --- */
-      if (i++ % 10 == 0) {
-        float temp;
-        ESP_ERROR_CHECK(get_temperature_celsius(&temp));
-        ESP_LOGI(TAG,
-                 "heading: %2.3f°, pitch: %2.3f°, roll: %2.3f°, Temp %2.3f°C",
-                 tmp.yaw_rad * (180.0f / M_PI), tmp.pitch_rad * (180.0f / M_PI),
-                 tmp.roll_rad * (180.0f / M_PI), temp);
-        vTaskDelay(0);
-      }
-    }
+    IMUState tmp;
+    tmp.yaw_rad = yaw;
+    tmp.pitch_rad = deg2rad_norm(pitch_deg);
+    tmp.roll_rad = deg2rad_norm(roll_deg);
+    tmp.gyro_z_rads = DEG2RAD(vg.z);
+    tmp.timestamp_us = esp_timer_get_time();
+    tmp.valid = true;
+
+    portENTER_CRITICAL(&imu_mux);
+    imu_state = tmp;
+    portEXIT_CRITICAL(&imu_mux);
+
+    // if (i++ % 50 == 0) {
+    //   ESP_LOGI(TAG, "yaw=%.2f°  pitch=%.2f°  roll=%.2f°", yaw_deg, pitch_deg,
+    //            roll_deg);
+    // }
 
     pause();
   }
@@ -158,11 +147,4 @@ const IMUState *imuGetState(void) {
   imu_state_copy = imu_state;
   portEXIT_CRITICAL(&imu_mux);
   return &imu_state_copy;
-}
-
-void imuResetYawOffset(void) {
-  const IMUState *s = imuGetState();
-  yaw_offset_rad = s->yaw_rad + yaw_offset_rad;
-  ESP_LOGI(TAG, "Offset puesto en: %.3f rad (%.3f°)", yaw_offset_rad,
-           yaw_offset_rad * (180.0f / M_PI));
 }

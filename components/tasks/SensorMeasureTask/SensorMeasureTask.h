@@ -20,5 +20,3 @@ void sensorMeasureTaskStart(void);
 
 /** Retorna puntero al estado IMU más reciente */
 const IMUState *imuGetState(void);
-
-void imuResetYawOffset(void);
