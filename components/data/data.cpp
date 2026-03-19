@@ -6,6 +6,9 @@
 #include "driver/ledc.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "soc/gpio_num.h"
@@ -20,20 +23,20 @@ static const ledc_timer_bit_t MOTOR_RESOLUTION = LEDC_TIMER_10_BIT;
 static const uint32_t MOTOR_PWM_FREQ = 20000; // 20 kHz
 
 static const int8_t NUM_SECTORS = 15;
-static constexpr float WHEEL_RADIUS_LEFT = 0.31f / 2.0f; // meters
-static constexpr float WHEEL_RADIUS_RIGHT = 0.31 / 2.0f; // meters
-static constexpr float WHEEL_BASE = 0.37f;               // meters
+static constexpr float WHEEL_RADIUS_LEFT = 0.31f / 2.0f;  // meters
+static constexpr float WHEEL_RADIUS_RIGHT = 0.31f / 2.0f; // meters
+static constexpr float WHEEL_BASE = 0.37f;                // meters
 uint64_t i = 0;
 
 static float target_speed_left_ = 0;
 static float target_speed_right_ = 0;
 
 static MotorConfig motor_right_cfg = {
-    GPIO_NUM_25, GPIO_NUM_26, LEDC_CHANNEL_0,  LEDC_CHANNEL_1,
+    GPIO_NUM_27, GPIO_NUM_14, LEDC_CHANNEL_0,  LEDC_CHANNEL_1,
     MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
 
 static MotorConfig motor_left_cfg = {
-    GPIO_NUM_14, GPIO_NUM_27, LEDC_CHANNEL_2,  LEDC_CHANNEL_3,
+    GPIO_NUM_13, GPIO_NUM_12, LEDC_CHANNEL_2,  LEDC_CHANNEL_3,
     MOTOR_TIMER, MOTOR_MODE,  MOTOR_RESOLUTION};
 
 static EncoderConfig encoder_left_cfg = {GPIO_NUM_32, GPIO_NUM_33};
@@ -68,24 +71,47 @@ static PIDController *controller_left = nullptr;
 
 static const char *TAG = "Data";
 
+/* -----------------------------------------------------------------
+ * wheel_init_task — corre en core 1 para que pcnt_unit_enable()
+ * registre las ISR en core 1, donde también viven las EncoderTasks.
+ * Sin esto la ISR y las tasks cruzarían cores y el spinlock falla.
+ * ----------------------------------------------------------------- */
+static SemaphoreHandle_t init_done_sem = nullptr;
+
+static void wheel_init_task(void *) {
+  controller_left = new PIDController(pid_gains_left, pid_timing);
+  wheel_left = new WheelDriver(motor_left_cfg, encoder_left_cfg, NUM_SECTORS,
+                               nvs_namespace_left, lut_left, 1, "L");
+  wheel_left->loadLUT();
+
+  controller_right = new PIDController(pid_gains_right, pid_timing);
+  wheel_right = new WheelDriver(motor_right_cfg, encoder_right_cfg, NUM_SECTORS,
+                                nvs_namespace_right, lut_right, 1, "R");
+  wheel_right->loadLUT();
+
+  ESP_LOGI(TAG, "Data inicializado");
+  xSemaphoreGive(init_done_sem);
+  vTaskDelete(nullptr);
+}
+
 void dataInit(void) {
+  /* --- LEDC timer (puede configurarse desde cualquier core) --- */
   ledc_timer_config_t timer_conf = {};
   timer_conf.speed_mode = MOTOR_MODE;
   timer_conf.duty_resolution = MOTOR_RESOLUTION;
   timer_conf.timer_num = MOTOR_TIMER;
   timer_conf.freq_hz = MOTOR_PWM_FREQ;
   timer_conf.clk_cfg = LEDC_AUTO_CLK;
-
   ESP_ERROR_CHECK(ledc_timer_config(&timer_conf));
 
-  for (int j = 0; j < 2; j++) {
-    for (int i = 0; i < NUM_SECTORS; i++) {
-      lut_left[i][j] = 100.0f;
-      lut_right[i][j] = 100.0f;
+  /* --- Inicializar LUTs con valor neutro --- */
+  for (int j = 0; j < 2; j++)
+    for (int k = 0; k < NUM_SECTORS; k++) {
+      lut_left[k][j] = 100.0f;
+      lut_right[k][j] = 100.0f;
     }
-  }
 
-  // Initialize NVS
+  /* --- NVS --- */
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
       ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -94,17 +120,14 @@ void dataInit(void) {
   }
   ESP_ERROR_CHECK(ret);
 
-  controller_left = new PIDController(pid_gains_left, pid_timing);
-  wheel_left = new WheelDriver(motor_left_cfg, encoder_left_cfg, NUM_SECTORS,
-                               nvs_namespace_left, lut_left);
-  wheel_left->loadLUT();
-
-  controller_right = new PIDController(pid_gains_right, pid_timing);
-  wheel_right = new WheelDriver(motor_right_cfg, encoder_right_cfg, NUM_SECTORS,
-                                nvs_namespace_right, lut_right);
-  wheel_right->loadLUT();
-
-  ESP_LOGI(TAG, "Data inicializado");
+  /* --- Construir WheelDrivers desde core 1 --- */
+  init_done_sem = xSemaphoreCreateBinary();
+  xTaskCreatePinnedToCore(wheel_init_task, "WheelInitTask", 8192, nullptr, 5,
+                          nullptr, 1);
+  /* Bloquear app_main hasta que ambas ruedas estén listas */
+  xSemaphoreTake(init_done_sem, portMAX_DELAY);
+  vSemaphoreDelete(init_done_sem);
+  init_done_sem = nullptr;
 }
 
 /* ================= WheelDriver ================= */
@@ -112,10 +135,6 @@ void dataInit(void) {
 void setDuty(float new_duty_left, float new_duty_right) {
   wheel_left->setDuty(new_duty_left);
   wheel_right->setDuty(new_duty_right);
-
-  ESP_LOGI(TAG, "Vel_L: %.2f rad/s | Vel_R: %.2f rad/s",
-           wheel_left->getVelocity(VelocityUnits::RAD_S),
-           wheel_right->getVelocity(VelocityUnits::RAD_S));
 }
 
 void setTargetSpeed(float linear, float angular) {
@@ -144,7 +163,6 @@ void calibrate(Direction dir) {
 float getVelocityLeft(VelocityUnits units) {
   return wheel_left->getVelocity(units);
 }
-
 float getVelocityRight(VelocityUnits units) {
   return wheel_right->getVelocity(units);
 }
@@ -179,24 +197,22 @@ void controlUpdate(void) {
   wheel_left->setDuty(duty_left);
   wheel_right->setDuty(duty_right);
 
-  if (i++ % 10 == 0) {
+  if (i++ % 10 == 0)
     ESP_LOGI(TAG, "Target left: %f Target Right: %f", target_speed_left_,
              target_speed_right_);
-  }
 }
 
 void printLUT(void) {
   ESP_LOGI(TAG, "LUT_LEFT\tFORWARD\t\tREVERSE");
-  for (int i = 0; i < NUM_SECTORS; i++)
-    ESP_LOGI(TAG, "[%d]\t%f\t%f", i, lut_left[i][0], lut_left[i][1]);
+  for (int k = 0; k < NUM_SECTORS; k++)
+    ESP_LOGI(TAG, "[%d]\t%f\t%f", k, lut_left[k][0], lut_left[k][1]);
 
   ESP_LOGI(TAG, "LUT_RIGHT\tFORWARD\t\tREVERSE");
-  for (int i = 0; i < NUM_SECTORS; i++)
-    ESP_LOGI(TAG, "[%d]\t%f\t%f", i, lut_right[i][0], lut_right[i][1]);
+  for (int k = 0; k < NUM_SECTORS; k++)
+    ESP_LOGI(TAG, "[%d]\t%f\t%f", k, lut_right[k][0], lut_right[k][1]);
 }
 
 /* ================= TimerNotify ================= */
 
 bool is_timer_enabled(void) { return timer_enabled; }
-
 void set_timer_state(bool state) { timer_enabled = state; }
