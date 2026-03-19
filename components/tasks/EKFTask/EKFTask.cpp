@@ -173,7 +173,8 @@ static void ekfTask(void *arg) {
  *  API pública
  * =============================================================== */
 void ekfTaskStart(uint32_t period_ms) {
-  xTaskCreate(ekfTask, "EKFTask", 4096, (void *)period_ms, 5, NULL);
+  xTaskCreatePinnedToCore(ekfTask, "EKFTask", 4096, (void *)period_ms, 5, NULL,
+                          0);
 }
 
 const EKFState *ekfGetState(void) {

@@ -29,8 +29,8 @@ static void controlTask(void *arg) {
 }
 
 TaskHandle_t controlTaskStart(void) {
-  xTaskCreate(controlTask, "controlTask", 3072, nullptr, 7,
-              &control_task_handle);
+  xTaskCreatePinnedToCore(controlTask, "controlTask", 3072, nullptr, 7,
+                          &control_task_handle, 0);
 
   ESP_LOGI(TAG, "ControlTask iniciada");
   return control_task_handle;
