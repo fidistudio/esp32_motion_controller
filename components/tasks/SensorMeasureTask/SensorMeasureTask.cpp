@@ -25,7 +25,6 @@ static const char *TAG = "SensorMeasure";
 static IMUState imu_state;
 static IMUState imu_state_copy;
 static portMUX_TYPE imu_mux = portMUX_INITIALIZER_UNLOCKED;
-static float yaw_offset_rad = 0.0f;
 
 /* ===============================================================
  *  Calibración
@@ -103,10 +102,14 @@ static void sensorTask(void *arg) {
     // Complementary filter: fusiona gyro (rápido) con accel (sin drift)
     roll_deg = ALPHA * roll_deg + (1.0f - ALPHA) * accel_roll;
     pitch_deg = ALPHA * pitch_deg + (1.0f - ALPHA) * accel_pitch;
-    // yaw no tiene corrección sin magnetómetro — driftea con el tiempo
 
-    // Publicar estado
-    float yaw = deg2rad_norm(yaw_deg) - yaw_offset_rad;
+    // Después de integrar yaw_deg, normaliza a [0, 360):
+    yaw_deg = fmodf(yaw_deg, 360.0f);
+    if (yaw_deg < 0.0f)
+      yaw_deg += 360.0f;
+
+    // Luego convierte a radianes para publicar
+    float yaw = yaw_deg * (M_PI / 180.0f);
     if (yaw > M_PI)
       yaw -= 2.0f * M_PI;
     if (yaw < -M_PI)
@@ -124,10 +127,10 @@ static void sensorTask(void *arg) {
     imu_state = tmp;
     portEXIT_CRITICAL(&imu_mux);
 
-    // if (i++ % 50 == 0) {
-    //   ESP_LOGI(TAG, "yaw=%.2f°  pitch=%.2f°  roll=%.2f°", yaw_deg, pitch_deg,
-    //            roll_deg);
-    // }
+    if (i++ % 50 == 0) {
+      ESP_LOGI(TAG, "yaw=%.2f°  pitch=%.2f°  roll=%.2f°", yaw_deg, pitch_deg,
+               roll_deg);
+    }
 
     pause();
   }
