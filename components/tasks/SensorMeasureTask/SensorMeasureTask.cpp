@@ -127,10 +127,10 @@ static void sensorTask(void *arg) {
     imu_state = tmp;
     portEXIT_CRITICAL(&imu_mux);
 
-    if (i++ % 50 == 0) {
-      ESP_LOGI(TAG, "yaw=%.2f°  pitch=%.2f°  roll=%.2f°", yaw_deg, pitch_deg,
-               roll_deg);
-    }
+    // if (i++ % 50 == 0) {
+    //   ESP_LOGI(TAG, "yaw=%.2f°  pitch=%.2f°  roll=%.2f°",
+    //            tmp.yaw_rad * (180 / M_PI), pitch_deg, roll_deg);
+    // }
 
     pause();
   }

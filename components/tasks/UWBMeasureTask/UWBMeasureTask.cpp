@@ -100,7 +100,7 @@ static void uwbTask(void *arg) {
     vTaskDelay(period);
 
     // ESP_LOGI(TAG, "Posicion estimada, X= %.3f, Y= %.3f", uwb_state.x,
-    // uwb_state.y);
+    //          uwb_state.y);
   }
 
   vTaskDelete(NULL);
