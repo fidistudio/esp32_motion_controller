@@ -11,9 +11,9 @@
 static const char *TAG = "UWBMeasureTask";
 
 // ------------------ Configuración de antenas en el espacio ------------------
-static coord Ant1{0.1f, 0.1f, -0.62f}; // x,y,z en metros
-static coord Ant2{2.66f, 3.95f, -0.62f};
-static coord Ant3{5.56, 0.1, -0.62f};
+static coord Ant1{0.1f, 0.1f, -0.412f}; // x,y,z en metros
+static coord Ant2{2.66f, 3.95f, -0.412f};
+static coord Ant3{5.56, 0.1, -0.412f};
 
 // ------------------ Estado publicado ------------------
 static UWBState uwb_state;
