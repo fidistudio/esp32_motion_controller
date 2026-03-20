@@ -109,9 +109,6 @@ static void UARTCommandTask(void *arg) {
           else if (strcasecmp(line_buf, "print") == 0) {
             ESP_LOGI(TAG, "Comando PRINT recibido");
             printLUT();
-          } else if (strcasecmp(line_buf, "reset yaw") == 0) {
-            imuResetYawOffset();
-            ESP_LOGI(TAG, "Yaw offset reseteado");
           } else {
             ESP_LOGW(TAG, "Comando desconocido: %s", line_buf);
           }
